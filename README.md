@@ -86,5 +86,6 @@ Key MVP routes:
 - Prisma supports `directUrl` in `schema.prisma`; this lets Prisma Client use `DATABASE_URL` while migrations and admin CLI operations use `DIRECT_URL`.
 - Prefer the pooled/session Supabase URL for the running API to avoid exhausting Postgres connections.
 - Prefer the direct URL for migrations. Migration workflows need stable database sessions and should not depend on transaction-pooling behavior.
+- If the direct URL is not reachable from your network because of IPv6 or firewall limitations, set `DIRECT_URL` to the Supabase session-pooler URI for `prisma migrate deploy`. Avoid the transaction pooler for Prisma migrations.
 - Keep `connection_limit` conservative for the API until real warehouse usage is known.
 - Supabase Row Level Security is powerful, but this backend connects with database credentials through Prisma. Application authorization should be handled in the Express layer unless/until a later auth phase changes that architecture.
