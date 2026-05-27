@@ -1,6 +1,6 @@
-# Warehouse Inventory Mapping API
+# Warehouse Inventory Mapping App
 
-Internal warehouse MVP backend using Express, TypeScript, Prisma, and PostgreSQL.
+Internal warehouse MVP using Express, TypeScript, Prisma, PostgreSQL, and a small React frontend.
 
 For this MVP, Supabase is used only as the managed PostgreSQL provider. The app does not use Supabase client libraries.
 
@@ -61,13 +61,32 @@ npm run smoke:db
 
 The smoke test verifies that the seed created seven active backstock areas, that inbound suggestions rank usable non-overflow space ahead of temporary overflow, and that an invalid front-home-slot move is rejected.
 
-## Running The API
+## Running Locally
+
+Run the backend API in one terminal:
 
 ```bash
-npm run dev
+npm run dev:api
 ```
 
-The API is mounted under `/api`.
+Run the React frontend in a second terminal:
+
+```bash
+npm run dev:web
+```
+
+Local URLs:
+
+- Backend API: `http://localhost:4000/api`
+- Frontend: `http://127.0.0.1:5173`
+
+The frontend reads `VITE_API_BASE_URL` and defaults to `http://localhost:4000/api`.
+
+Build both API and frontend:
+
+```bash
+npm run build
+```
 
 Key MVP routes:
 
@@ -78,6 +97,13 @@ Key MVP routes:
 - `POST /api/moves`
 - `GET /api/moves`
 - `GET /api/suggestions/inbound-placement?partNumber=100220&palletQty=2`
+
+Frontend MVP screens:
+
+- `/floor-map`
+- `/sku-search`
+- `/move-pallet`
+- `/inbound-suggestions`
 
 ## Supabase + Prisma Notes
 
