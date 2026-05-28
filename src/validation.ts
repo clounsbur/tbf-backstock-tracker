@@ -46,6 +46,10 @@ export const movePalletSchema = z.object({
   path: ["toLocationId"],
 });
 
+export const moveDestinationsQuerySchema = z.object({
+  palletId: z.string().trim().min(1, "palletId is required"),
+});
+
 export const moveHistoryQuerySchema = z.object({
   palletId: z.string().optional(),
   skuId: z.string().optional(),

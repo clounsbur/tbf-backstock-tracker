@@ -624,7 +624,7 @@ h3 {
   border-left-color: #f59e0b;
 }
 
-.destination-row.likely-invalid {
+.destination-row.invalid {
   border-left-color: #dc2626;
 }
 
@@ -667,9 +667,19 @@ h3 {
   color: #92400e;
 }
 
-.decision-pill.likely-invalid {
+.decision-pill.invalid {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.destination-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.compact-reasons {
+  margin-top: 4px;
 }
 
 .suggestion-section {

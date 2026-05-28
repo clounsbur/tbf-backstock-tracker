@@ -79,6 +79,14 @@ export type MoveTransaction = {
   toLocation?: Location | null;
 };
 
+export type MoveDestinationCategory = "recommended" | "allowed" | "occupied" | "invalid";
+
+export type MoveDestination = {
+  category: MoveDestinationCategory;
+  reasons: string[];
+  location: Location;
+};
+
 export type InboundSuggestion = {
   isAllowed: boolean;
   score: number;
@@ -114,6 +122,17 @@ export const api = {
   listPallets: () => request<{ pallets: Pallet[] }>("/pallets"),
   searchSkus: (query: string) => request<{ skus: Sku[] }>(`/skus/search?q=${encodeURIComponent(query)}`),
   listMoves: (limit = 25) => request<{ moves: MoveTransaction[] }>(`/moves?limit=${limit}`),
+  getMoveDestinations: (palletId: string) =>
+    request<{
+      pallet: {
+        id: string;
+        palletLicensePlate: string;
+        sku: Pick<Sku, "id" | "partNumber" | "description" | "velocityClass">;
+        currentLocation: Location | null;
+      };
+      destinations: MoveDestination[];
+      summary: Record<MoveDestinationCategory, number>;
+    }>(`/move-destinations?palletId=${encodeURIComponent(palletId)}`),
   movePallet: (body: {
     palletId?: string;
     palletLicensePlate?: string;

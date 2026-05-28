@@ -96,6 +96,7 @@ Key MVP routes:
 - `GET /api/skus/search?q=100220`
 - `POST /api/moves`
 - `GET /api/moves`
+- `GET /api/move-destinations?palletId=...`
 - `GET /api/suggestions/inbound-placement?partNumber=100220&palletQty=2`
 
 Frontend MVP screens:

@@ -1,22 +1,15 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { MoveRight, RefreshCw } from "lucide-react";
-import { api, type Location, type MoveTransaction, type Pallet } from "../api/client";
+import { api, type MoveDestination, type MoveTransaction, type Pallet } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { RecentMoves } from "../components/RecentMoves";
 import { ErrorBlock, LoadingBlock } from "../components/StateBlocks";
 import { StatusBadge, formatLabel } from "../components/StatusBadge";
 
-type DestinationCategory = "recommended" | "allowed" | "occupied" | "likely-invalid";
-
-type ClassifiedLocation = {
-  location: Location;
-  category: DestinationCategory;
-  reason: string;
-};
-
 export function MovePallet() {
   const [pallets, setPallets] = useState<Pallet[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
+  const [destinations, setDestinations] = useState<MoveDestination[]>([]);
+  const [destinationSummary, setDestinationSummary] = useState<Record<string, number> | null>(null);
   const [selectedPalletId, setSelectedPalletId] = useState("");
   const [selectedLocationId, setSelectedLocationId] = useState("");
   const [movedBy, setMovedBy] = useState("warehouse.demo");
@@ -27,17 +20,15 @@ export function MovePallet() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [latestMove, setLatestMove] = useState<MoveTransaction | null>(null);
-  const [recommendedLocationIds, setRecommendedLocationIds] = useState<Set<string>>(new Set());
-  const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [destinationError, setDestinationError] = useState<string | null>(null);
   const [moveRefreshKey, setMoveRefreshKey] = useState(0);
 
   async function loadData() {
     setLoading(true);
     setError(null);
     try {
-      const [palletResponse, locationResponse] = await Promise.all([api.listPallets(), api.listLocations()]);
+      const palletResponse = await api.listPallets();
       setPallets(palletResponse.pallets);
-      setLocations(locationResponse.locations);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load move data");
     } finally {
@@ -52,45 +43,32 @@ export function MovePallet() {
   const selectedPallet = pallets.find((pallet) => pallet.id === selectedPalletId);
 
   useEffect(() => {
-    async function loadRecommendations() {
-      if (!selectedPallet?.skuId) {
-        setRecommendedLocationIds(new Set());
-        setRecommendationError(null);
+    async function loadDestinations() {
+      if (!selectedPalletId) {
+        setDestinations([]);
+        setDestinationSummary(null);
+        setDestinationError(null);
         return;
       }
 
       try {
-        const response = await api.getInboundSuggestions({ skuId: selectedPallet.skuId, palletQty: 1 });
-        setRecommendedLocationIds(new Set(response.suggestions.map((suggestion) => suggestion.location.id)));
-        setRecommendationError(null);
+        const response = await api.getMoveDestinations(selectedPalletId);
+        setDestinations(response.destinations);
+        setDestinationSummary(response.summary);
+        setDestinationError(null);
       } catch (loadError) {
-        setRecommendedLocationIds(new Set());
-        setRecommendationError(loadError instanceof Error ? loadError.message : "Could not load recommended destinations");
+        setDestinations([]);
+        setDestinationSummary(null);
+        setDestinationError(loadError instanceof Error ? loadError.message : "Could not load destination guidance");
       }
     }
 
-    void loadRecommendations();
-  }, [selectedPallet?.skuId]);
+    void loadDestinations();
+  }, [selectedPalletId]);
 
   const candidateLocations = useMemo(
-    () =>
-      locations
-        .map((location) => classifyDestination(location, selectedPallet, recommendedLocationIds))
-        .sort((a, b) => {
-          const categoryOrder: Record<DestinationCategory, number> = {
-            recommended: 0,
-            allowed: 1,
-            occupied: 2,
-            "likely-invalid": 3,
-          };
-
-          return (
-            categoryOrder[a.category] - categoryOrder[b.category] ||
-            (a.location.travelSequence ?? 9999) - (b.location.travelSequence ?? 9999) ||
-            a.location.fullLocationCode.localeCompare(b.location.fullLocationCode)
-          );
-        }),
-    [locations, recommendedLocationIds, selectedPallet],
+    () => destinations,
+    [destinations],
   );
 
   async function handleSubmit(event: FormEvent) {
@@ -116,6 +94,8 @@ export function MovePallet() {
       setSuccess(`Moved ${response.pallet.palletLicensePlate} to ${response.pallet.currentLocation?.fullLocationCode}.`);
       setSelectedPalletId("");
       setSelectedLocationId("");
+      setDestinations([]);
+      setDestinationSummary(null);
       setNotes("");
       await loadData();
       setMoveRefreshKey((current) => current + 1);
@@ -171,12 +151,22 @@ export function MovePallet() {
             <div className="panel-heading">
               <div>
                 <h2>Destination</h2>
-                <p>Backend validation still makes the final decision when you submit.</p>
+                <p>Categories and reasons come from the backend move-destination rules.</p>
               </div>
             </div>
-            {recommendationError && <div className="state-block warning">{recommendationError}</div>}
+            {destinationSummary && (
+              <div className="destination-summary-row">
+                {Object.entries(destinationSummary).map(([category, count]) => (
+                  <span className={`decision-pill ${category}`} key={category}>
+                    {formatLabel(category)}: {count}
+                  </span>
+                ))}
+              </div>
+            )}
+            {destinationError && <div className="state-block warning">{destinationError}</div>}
+            {!selectedPalletId && <p className="subtle">Select a pallet to load authoritative destination guidance.</p>}
             <div className="destination-list">
-              {candidateLocations.map(({ location, category, reason }) => (
+              {candidateLocations.map(({ location, category, reasons }) => (
                 <button
                   className={`destination-row ${category}${selectedLocationId === location.id ? " selected" : ""}`}
                   key={location.id}
@@ -185,7 +175,7 @@ export function MovePallet() {
                 >
                   <span className="destination-main">
                     <strong>{location.fullLocationCode}</strong>
-                    <small>{reason}</small>
+                    <small>{reasons[0]}</small>
                   </span>
                   <span className="destination-meta">
                     <span className={`decision-pill ${category}`}>{formatLabel(category)}</span>
@@ -218,7 +208,7 @@ export function MovePallet() {
               <h3>Destination Rule State</h3>
               {selectedLocationId ? (
                 <DestinationSummary
-                  classifiedLocation={candidateLocations.find(({ location }) => location.id === selectedLocationId)}
+                  destination={candidateLocations.find(({ location }) => location.id === selectedLocationId)}
                 />
               ) : (
                 <p className="subtle">No destination selected.</p>
@@ -253,10 +243,10 @@ export function MovePallet() {
   );
 }
 
-function DestinationSummary({ classifiedLocation }: { classifiedLocation?: ClassifiedLocation }) {
-  if (!classifiedLocation) return null;
+function DestinationSummary({ destination }: { destination?: MoveDestination }) {
+  if (!destination) return null;
 
-  const { location, category, reason } = classifiedLocation;
+  const { location, category, reasons } = destination;
 
   return (
     <div className="destination-summary">
@@ -264,7 +254,11 @@ function DestinationSummary({ classifiedLocation }: { classifiedLocation?: Class
         <strong>{location.fullLocationCode}</strong>
       </p>
       <span className={`decision-pill ${category}`}>{formatLabel(category)}</span>
-      <span className="subtle">{reason}</span>
+      <ul className="reason-list compact-reasons">
+        {reasons.map((reason) => (
+          <li key={reason}>{reason}</li>
+        ))}
+      </ul>
       <StatusBadge value={location.status} />
       <div className="rule-tags">
         {location.isFrontHomeSlot && <span>Front home</span>}
@@ -274,83 +268,4 @@ function DestinationSummary({ classifiedLocation }: { classifiedLocation?: Class
       </div>
     </div>
   );
-}
-
-function classifyDestination(location: Location, selectedPallet: Pallet | undefined, recommendedLocationIds: Set<string>): ClassifiedLocation {
-  if (!selectedPallet?.sku) {
-    return {
-      location,
-      category: location.currentPallet ? "occupied" : "allowed",
-      reason: "Select a pallet to check SKU-specific rules.",
-    };
-  }
-
-  if (location.id === selectedPallet.currentLocationId) {
-    return {
-      location,
-      category: "likely-invalid",
-      reason: "This is the pallet's current location.",
-    };
-  }
-
-  if (location.status === "BLOCKED") {
-    return {
-      location,
-      category: "likely-invalid",
-      reason: "Location is blocked.",
-    };
-  }
-
-  if (location.currentPallet) {
-    return {
-      location,
-      category: "occupied",
-      reason: `Occupied by ${location.currentPallet.palletLicensePlate}.`,
-    };
-  }
-
-  if (location.isFrontHomeSlot && location.homeSkuId !== selectedPallet.skuId) {
-    return {
-      location,
-      category: "likely-invalid",
-      reason: "Front home slot belongs to another SKU.",
-    };
-  }
-
-  const isBorrowedReserve = Boolean(location.homeSkuId && location.homeSkuId !== selectedPallet.skuId);
-
-  if (isBorrowedReserve && (!location.isFlexSlot || !location.allowsOverflow)) {
-    return {
-      location,
-      category: "likely-invalid",
-      reason: "Borrowed reserve must be flex overflow-capable.",
-    };
-  }
-
-  if (
-    isBorrowedReserve &&
-    location.partNumberStart &&
-    location.partNumberEnd &&
-    (selectedPallet.sku.partNumber < location.partNumberStart || selectedPallet.sku.partNumber > location.partNumberEnd)
-  ) {
-    return {
-      location,
-      category: "likely-invalid",
-      reason: "Outside the part-number neighborhood.",
-    };
-  }
-
-  if (recommendedLocationIds.has(location.id)) {
-    return {
-      location,
-      category: "recommended",
-      reason: "Returned by the live suggestion endpoint.",
-    };
-  }
-
-  return {
-    location,
-    category: "allowed",
-    reason: "Looks open under visible rules; backend will validate on submit.",
-  };
 }

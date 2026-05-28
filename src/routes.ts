@@ -3,12 +3,14 @@ import { Prisma } from "@prisma/client";
 import { HttpError } from "./httpError.js";
 import { prisma } from "./prisma.js";
 import { getInboundPlacementSuggestions } from "./services/inboundSuggestionService.js";
+import { getMoveDestinations } from "./services/moveDestinationService.js";
 import { movePallet } from "./services/moveService.js";
 import {
   inboundSuggestionQuerySchema,
   listLocationsQuerySchema,
   listPalletsQuerySchema,
   listSkusQuerySchema,
+  moveDestinationsQuerySchema,
   moveHistoryQuerySchema,
   movePalletSchema,
   skuSearchQuerySchema,
@@ -279,6 +281,17 @@ router.get("/moves", async (req, res, next) => {
     });
 
     res.json({ moves });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/move-destinations", async (req, res, next) => {
+  try {
+    const query = moveDestinationsQuerySchema.parse(req.query);
+    const result = await getMoveDestinations(prisma, query.palletId);
+
+    res.json(result);
   } catch (error) {
     next(error);
   }
