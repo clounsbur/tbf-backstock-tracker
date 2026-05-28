@@ -37,6 +37,12 @@ export function InboundSuggestions() {
     }
   }
 
+  const preferredBackstock = suggestions.filter((suggestion) => suggestion.location.areaType === "BACKSTOCK");
+  const temporaryOverflow = suggestions.filter((suggestion) => suggestion.location.areaType === "OVERFLOW");
+  const otherSuggestions = suggestions.filter(
+    (suggestion) => suggestion.location.areaType !== "BACKSTOCK" && suggestion.location.areaType !== "OVERFLOW",
+  );
+
   return (
     <section>
       <PageHeader eyebrow="Inbound Placement" title="Ranked Location Suggestions" />
@@ -75,9 +81,32 @@ export function InboundSuggestions() {
         </div>
       )}
 
+      <div className="suggestion-sections">
+        <SuggestionSection title="Preferred Named Backstock" note="Use these before temporary overflow." suggestions={preferredBackstock} />
+        <SuggestionSection title="Home / Flex Reserve" note="Useful when it preserves home-slot and flex rules." suggestions={otherSuggestions} />
+        <SuggestionSection title="Temporary Overflow Fallback" note="Use only after named backstock options are exhausted." suggestions={temporaryOverflow} />
+      </div>
+    </section>
+  );
+}
+
+function SuggestionSection({ title, note, suggestions }: { title: string; note: string; suggestions: InboundSuggestion[] }) {
+  if (suggestions.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="suggestion-section">
+      <div className="section-heading">
+        <div>
+          <h2>{title}</h2>
+          <p>{note}</p>
+        </div>
+        <span>{suggestions.length}</span>
+      </div>
       <div className="suggestion-list">
         {suggestions.map((suggestion, index) => (
-          <article className="suggestion" key={suggestion.location.id}>
+          <article className={`suggestion ${suggestion.location.areaType.toLowerCase()}`} key={suggestion.location.id}>
             <div className="rank">{index + 1}</div>
             <div className="suggestion-body">
               <div className="panel-heading">
