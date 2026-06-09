@@ -1,10 +1,10 @@
-import { LocationStatus, type Sku } from "@prisma/client";
+import { LocationStatus, type ProductSku } from "../domainTypes.js";
 import { HttpError } from "../httpError.js";
 
 type DestinationForMove = {
   fullLocationCode: string;
   status: LocationStatus;
-  homeSkuId: string | null;
+  homeSkuId: number | null;
   isFrontHomeSlot: boolean;
   isFlexSlot: boolean;
   allowsOverflow: boolean;
@@ -16,7 +16,7 @@ type DestinationForMove = {
   };
 };
 
-export function validateLegalMove(sku: Pick<Sku, "id" | "partNumber">, destination: DestinationForMove) {
+export function validateLegalMove(sku: Pick<ProductSku, "id" | "partNumber">, destination: DestinationForMove) {
   if (destination.status === LocationStatus.BLOCKED) {
     throw new HttpError(409, "Destination location is blocked");
   }

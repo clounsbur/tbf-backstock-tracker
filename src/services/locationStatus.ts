@@ -1,10 +1,6 @@
-import { LocationStatus, type Location, type Pallet } from "@prisma/client";
+import { LocationStatus, type LocationRecord } from "../domainTypes.js";
 
-type LocationWithPallet = Location & {
-  currentPallet?: (Pallet & { skuId: string }) | null;
-};
-
-export function openStatusForLocation(location: Pick<Location, "isFrontHomeSlot" | "isFlexSlot" | "status">): LocationStatus {
+export function openStatusForLocation(location: Pick<LocationRecord, "isFrontHomeSlot" | "isFlexSlot" | "status">): LocationStatus {
   if (location.status === LocationStatus.BLOCKED) {
     return LocationStatus.BLOCKED;
   }
@@ -20,7 +16,10 @@ export function openStatusForLocation(location: Pick<Location, "isFrontHomeSlot"
   return LocationStatus.OPEN;
 }
 
-export function occupiedStatusForLocation(location: Pick<Location, "homeSkuId" | "isFlexSlot" | "allowsOverflow">, skuId: string): LocationStatus {
+export function occupiedStatusForLocation(
+  location: Pick<LocationRecord, "homeSkuId" | "isFlexSlot" | "allowsOverflow">,
+  skuId: number,
+): LocationStatus {
   if (location.homeSkuId && location.homeSkuId !== skuId) {
     return LocationStatus.OCCUPIED_OVERFLOW_SKU;
   }
@@ -32,6 +31,6 @@ export function occupiedStatusForLocation(location: Pick<Location, "homeSkuId" |
   return LocationStatus.OCCUPIED_HOME_SKU;
 }
 
-export function isLocationOpen(location: LocationWithPallet): boolean {
+export function isLocationOpen(location: LocationRecord): boolean {
   return location.status !== LocationStatus.BLOCKED && !location.currentPallet;
 }

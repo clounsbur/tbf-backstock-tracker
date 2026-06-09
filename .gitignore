@@ -7,3 +7,9 @@ build/
 .env.production
 coverage/
 .next/
+
+# Vite temp config compiles
+*.timestamp-*.mjs
+
+# Stray screenshots / scratch images
+Screenshot*.png

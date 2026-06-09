@@ -1,34 +1,14 @@
-import { AreaType, LocationStatus, type PrismaClient, type Sku } from "@prisma/client";
+import { AreaType, LocationStatus, type LocationRecord, type PalletRecord, type ProductSku } from "../domainTypes.js";
 import { HttpError } from "../httpError.js";
+import { type InventorySupabaseClient } from "../supabase.js";
 import { getInboundPlacementSuggestions } from "./inboundSuggestionService.js";
+import { mapLocation, mapPallet, PRODUCT_SELECT } from "./supabaseMappers.js";
 
 export type MoveDestinationCategory = "recommended" | "allowed" | "occupied" | "invalid";
 
-type MoveDestinationLocation = {
-  id: string;
-  fullLocationCode: string;
-  zone: string;
-  aisle: string;
-  bay: string;
-  level: string;
-  depthPosition: number;
-  homeSkuId: string | null;
-  isFrontHomeSlot: boolean;
-  isFlexSlot: boolean;
-  allowsOverflow: boolean;
-  status: LocationStatus;
-  partNumberStart: string | null;
-  partNumberEnd: string | null;
-  travelSequence: number | null;
-  area: {
-    name: string;
-    areaType: AreaType;
-    sortOrder: number;
-  };
-  homeSku?: {
-    partNumber: string;
-    description: string;
-  } | null;
+type MoveDestinationLocation = LocationRecord & {
+  area: NonNullable<LocationRecord["area"]>;
+  homeSku?: Pick<ProductSku, "partNumber" | "description"> | null;
   currentPallet?: {
     id: string;
     palletLicensePlate: string;
@@ -38,55 +18,63 @@ type MoveDestinationLocation = {
   } | null;
 };
 
-type MoveDestinationPallet = {
-  id: string;
-  palletLicensePlate: string;
-  skuId: string;
-  currentLocationId: string | null;
-  sku: Pick<Sku, "id" | "partNumber" | "description" | "velocityClass">;
+type MoveDestinationPallet = Omit<PalletRecord, "sku"> & {
+  sku: Pick<ProductSku, "id" | "partNumber" | "description" | "velocityClass">;
 };
 
-export async function getMoveDestinations(prisma: PrismaClient, palletId: string) {
-  const pallet = await prisma.pallet.findUnique({
-    where: { id: palletId },
-    include: {
-      sku: true,
-      currentLocation: true,
-    },
-  });
+export async function getMoveDestinations(supabase: InventorySupabaseClient, palletId: string) {
+  const { data: palletRow, error: palletError } = await supabase
+    .from("pallets")
+    .select(
+      `
+        *,
+        product:products!pallets_product_id_fkey(${PRODUCT_SELECT}),
+        current_location:locations(*)
+      `,
+    )
+    .eq("id", palletId)
+    .maybeSingle();
 
-  if (!pallet) {
+  if (palletError) {
+    throw palletError;
+  }
+
+  if (!palletRow) {
     throw new HttpError(404, "Pallet not found");
   }
 
-  const locations = await prisma.location.findMany({
-    include: {
-      area: true,
-      homeSku: {
-        select: {
-          partNumber: true,
-          description: true,
-        },
-      },
-      currentPallet: {
-        include: {
-          sku: {
-            select: {
-              partNumber: true,
-            },
-          },
-        },
-      },
-    },
-    orderBy: [
-      { zone: "asc" },
-      { aisle: "asc" },
-      { bay: "asc" },
-      { depthPosition: "asc" },
-    ],
-  });
+  const pallet = mapPallet(palletRow) as MoveDestinationPallet;
 
-  const recommendations = await getInboundPlacementSuggestions(prisma, {
+  if (!pallet.sku) {
+    throw new HttpError(409, "Pallet is missing its product");
+  }
+
+  const { data: locationRows, error: locationError } = await supabase
+    .from("locations")
+    .select(
+      `
+        *,
+        area:warehouse_areas(*),
+        home_product:products!locations_home_product_id_fkey(${PRODUCT_SELECT}),
+        current_pallet:pallets!pallets_current_location_id_fkey(
+          id,
+          pallet_license_plate,
+          product_id,
+          product:products!pallets_product_id_fkey(${PRODUCT_SELECT})
+        )
+      `,
+    )
+    .order("zone", { ascending: true })
+    .order("aisle", { ascending: true })
+    .order("bay", { ascending: true })
+    .order("depth_position", { ascending: true });
+
+  if (locationError) {
+    throw locationError;
+  }
+
+  const locations = (locationRows ?? []).map(mapLocation) as MoveDestinationLocation[];
+  const recommendations = await getInboundPlacementSuggestions(supabase, {
     skuId: pallet.skuId,
     palletQty: 5,
   });

@@ -1,17 +1,25 @@
 import { strict as assert } from "node:assert";
-import { AreaType, LocationStatus, VelocityClass } from "@prisma/client";
+import { AreaType, LocationStatus } from "../domainTypes.js";
 import { classifyMoveDestination } from "./moveDestinationService.js";
 
 const pallet = {
   id: "pallet-1",
   palletLicensePlate: "PLT-1",
-  skuId: "sku-100220",
+  skuId: 100220,
   currentLocationId: "current-location",
+  quantity: 1,
+  receivedAt: new Date().toISOString(),
+  status: "AVAILABLE" as const,
+  inboundReceiptId: null,
   sku: {
-    id: "sku-100220",
+    id: 100220,
     partNumber: "100220",
     description: "Widget bearing kit",
-    velocityClass: VelocityClass.MEDIUM,
+    velocityClass: "MEDIUM" as const,
+    productFamily: null,
+    palletsPerFullAllocation: null,
+    active: true,
+    lotNumber: null,
   },
 };
 
@@ -19,6 +27,7 @@ function location(overrides: Record<string, unknown> = {}) {
   return {
     id: "location-1",
     fullLocationCode: "BACKSTOCK-2-B02-001-L1-D1",
+    areaId: "area-backstock",
     zone: "BACKSTOCK-2",
     aisle: "B02",
     bay: "001",
@@ -33,6 +42,7 @@ function location(overrides: Record<string, unknown> = {}) {
     partNumberEnd: "199999",
     travelSequence: 100,
     area: {
+      id: "area-backstock",
       name: "Backstock Area 2",
       areaType: AreaType.BACKSTOCK,
       sortOrder: 11,
@@ -54,7 +64,7 @@ function classify(overrides: Record<string, unknown>, recommendedLocationIds = n
 
 const wrongFrontHome = classify({
   isFrontHomeSlot: true,
-  homeSkuId: "other-sku",
+  homeSkuId: 200100,
   area: {
     name: "Front Home Slots",
     areaType: AreaType.FRONT_HOME,
@@ -110,7 +120,7 @@ assert.equal(overflowAllowedWhenBackstockFull.category, "allowed");
 assert.match(overflowAllowedWhenBackstockFull.reasons.join(" "), /no named backstock/);
 
 const wrongPartNeighborhood = classify({
-  homeSkuId: "other-sku",
+  homeSkuId: 200100,
   isFlexSlot: true,
   allowsOverflow: true,
   partNumberStart: "200000",

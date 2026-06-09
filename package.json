@@ -4,45 +4,27 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run dev:api",
-    "dev:api": "tsx watch src/server.ts",
+    "dev": "npm run dev:web",
     "dev:web": "vite --config client/vite.config.ts --host 127.0.0.1",
-    "start": "node dist/server.js",
-    "build": "npm run build:api && npm run build:web",
-    "build:api": "tsc",
+    "build": "npm run build:services && npm run build:web",
+    "build:services": "tsc",
     "build:web": "vite build --config client/vite.config.ts",
     "preview:web": "vite preview --config client/vite.config.ts --host 127.0.0.1",
-    "test": "npm run test:move-destinations && npm run test:move-destinations:endpoint",
-    "test:move-destinations": "tsx src/services/moveDestinationService.test.ts",
-    "test:move-destinations:endpoint": "tsx src/moveDestinationsEndpoint.test.ts",
-    "smoke:db": "tsx src/smokeTest.ts",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "prisma db seed"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "test": "npm run test:move-destinations",
+    "test:move-destinations": "tsx src/services/moveDestinationService.test.ts"
   },
   "dependencies": {
-    "@prisma/client": "^5.22.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.1",
+    "@supabase/supabase-js": "^2.49.8",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0",
-    "zod": "^3.23.8"
+    "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
     "@types/node": "^22.8.7",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
-    "prisma": "^5.22.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vite": "^5.4.11"

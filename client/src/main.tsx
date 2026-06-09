@@ -1,8 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
-import { Boxes, ClipboardList, Map, MoveRight, Search } from "lucide-react";
+import { Boxes, ClipboardList, LayoutDashboard, Map, MoveRight, PackagePlus, Search } from "lucide-react";
 import { FloorMap } from "./screens/FloorMap";
+import { FloorPlan } from "./screens/FloorPlan";
+import { InboundContainer } from "./screens/InboundContainer";
 import { InboundSuggestions } from "./screens/InboundSuggestions";
 import { MovePallet } from "./screens/MovePallet";
 import { SkuSearch } from "./screens/SkuSearch";
@@ -21,18 +23,22 @@ function App() {
             </div>
           </div>
           <nav className="nav-list" aria-label="Primary">
+            <NavItem to="/floor-plan" icon={<LayoutDashboard size={18} />} label="Floor Plan" />
             <NavItem to="/floor-map" icon={<Map size={18} />} label="Floor Map" />
             <NavItem to="/sku-search" icon={<Search size={18} />} label="SKU Search" />
             <NavItem to="/move-pallet" icon={<MoveRight size={18} />} label="Move Pallet" />
+            <NavItem to="/inbound-container" icon={<PackagePlus size={18} />} label="Incoming Container" />
             <NavItem to="/inbound-suggestions" icon={<ClipboardList size={18} />} label="Inbound Suggestions" />
           </nav>
         </aside>
         <main className="content">
           <Routes>
-            <Route path="/" element={<Navigate to="/floor-map" replace />} />
+            <Route path="/" element={<Navigate to="/floor-plan" replace />} />
+            <Route path="/floor-plan" element={<FloorPlan />} />
             <Route path="/floor-map" element={<FloorMap />} />
             <Route path="/sku-search" element={<SkuSearch />} />
             <Route path="/move-pallet" element={<MovePallet />} />
+            <Route path="/inbound-container" element={<InboundContainer />} />
             <Route path="/inbound-suggestions" element={<InboundSuggestions />} />
           </Routes>
         </main>

@@ -1,9 +1,11 @@
-import { AreaType, LocationStatus, type PrismaClient, type Sku } from "@prisma/client";
+import { type InventorySupabaseClient } from "../supabase.js";
+import { AreaType, LocationStatus, type LocationRecord, type ProductSku } from "../domainTypes.js";
 import { HttpError } from "../httpError.js";
 import { isLocationOpen } from "./locationStatus.js";
+import { mapLocation, mapProduct, PRODUCT_SELECT } from "./supabaseMappers.js";
 
 type SuggestionInput = {
-  skuId?: string;
+  skuId?: number | string;
   partNumber?: string;
   inboundReceiptId?: string;
   palletQty: number;
@@ -14,25 +16,28 @@ type CandidateReason = {
   label: string;
 };
 
-export async function getInboundPlacementSuggestions(prisma: PrismaClient, input: SuggestionInput) {
-  const sku = await resolveSku(prisma, input);
+export async function getInboundPlacementSuggestions(supabase: InventorySupabaseClient, input: SuggestionInput) {
+  const sku = await resolveSku(supabase, input);
 
-  const candidateLocations = await prisma.location.findMany({
-    where: {
-      status: {
-        not: LocationStatus.BLOCKED,
-      },
-    },
-    include: {
-      area: true,
-      homeSku: true,
-      currentPallet: true,
-    },
-    orderBy: [
-      { travelSequence: "asc" },
-      { fullLocationCode: "asc" },
-    ],
-  });
+  const { data, error } = await supabase
+    .from("locations")
+    .select(
+      `
+        *,
+        area:warehouse_areas(*),
+        home_product:products!locations_home_product_id_fkey(${PRODUCT_SELECT}),
+        current_pallet:pallets!pallets_current_location_id_fkey(*)
+      `,
+    )
+    .neq("status", LocationStatus.BLOCKED)
+    .order("travel_sequence", { ascending: true, nullsFirst: false })
+    .order("full_location_code", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  const candidateLocations = (data ?? []).map(mapLocation);
 
   const suggestions = candidateLocations
     .filter((location) => isLocationOpen(location))
@@ -48,45 +53,44 @@ export async function getInboundPlacementSuggestions(prisma: PrismaClient, input
   };
 }
 
-async function resolveSku(prisma: PrismaClient, input: SuggestionInput): Promise<Sku> {
+async function resolveSku(supabase: InventorySupabaseClient, input: SuggestionInput): Promise<ProductSku> {
   if (input.inboundReceiptId) {
-    const receipt = await prisma.inboundReceipt.findUnique({
-      where: { id: input.inboundReceiptId },
-      include: { sku: true },
-    });
+    const { data: receipt, error } = await supabase
+      .from("inbound_receipts")
+      .select(`id, product:products!inbound_receipts_product_id_fkey(${PRODUCT_SELECT})`)
+      .eq("id", input.inboundReceiptId)
+      .maybeSingle();
 
-    if (!receipt) {
+    if (error) {
+      throw error;
+    }
+
+    if (!receipt || !receipt.product) {
       throw new HttpError(404, "Inbound receipt not found");
     }
 
-    return receipt.sku;
+    return mapProduct(receipt.product);
   }
 
-  const sku = await prisma.sku.findFirst({
-    where: input.skuId ? { id: input.skuId } : { partNumber: input.partNumber },
-  });
+  const query = supabase.from("products").select(PRODUCT_SELECT);
+  const { data: sku, error } = input.skuId
+    ? await query.eq("id", Number(input.skuId)).maybeSingle()
+    : await query.eq("item_code", input.partNumber).maybeSingle();
+
+  if (error) {
+    throw error;
+  }
 
   if (!sku) {
     throw new HttpError(404, "SKU not found");
   }
 
-  return sku;
+  return mapProduct(sku);
 }
 
 function scoreLocationForSku(
-  sku: Sku,
-  location: {
-    id: string;
-    fullLocationCode: string;
-    area: { name: string; areaType: AreaType };
-    homeSkuId: string | null;
-    isFrontHomeSlot: boolean;
-    isFlexSlot: boolean;
-    allowsOverflow: boolean;
-    partNumberStart: string | null;
-    partNumberEnd: string | null;
-    travelSequence: number | null;
-  },
+  sku: ProductSku,
+  location: LocationRecord,
 ) {
   const reasons: CandidateReason[] = [];
   let score = 0;
@@ -107,7 +111,7 @@ function scoreLocationForSku(
     reasons.push({ code: "HOME_MATCH", label: "Assigned home slot for this SKU" });
   }
 
-  if (location.area.areaType === AreaType.BACKSTOCK) {
+  if (location.area?.areaType === AreaType.BACKSTOCK) {
     score += 40;
     reasons.push({ code: "BACKSTOCK_FIRST", label: "Uses named backstock before temporary overflow" });
   }
@@ -122,12 +126,12 @@ function scoreLocationForSku(
     reasons.push({ code: "FLEX_REVERSIBLE", label: "Flex slot can be reclaimed later" });
   }
 
-  if (location.area.areaType === AreaType.OVERFLOW) {
+  if (location.area?.areaType === AreaType.OVERFLOW) {
     score -= 30;
     reasons.push({ code: "TEMP_OVERFLOW", label: "Temporary overflow is lower priority than backstock" });
   }
 
-  if (location.area.areaType === AreaType.OVERFLOW && !location.allowsOverflow) {
+  if (location.area?.areaType === AreaType.OVERFLOW && !location.allowsOverflow) {
     isAllowed = false;
   }
 
@@ -157,17 +161,12 @@ function partNumberInRange(partNumber: string, start: string | null, end: string
   return partNumber >= start && partNumber <= end;
 }
 
-function toLocationSummary(location: {
-  id: string;
-  fullLocationCode: string;
-  area: { name: string; areaType: AreaType };
-  travelSequence: number | null;
-}) {
+function toLocationSummary(location: LocationRecord) {
   return {
     id: location.id,
     fullLocationCode: location.fullLocationCode,
-    areaName: location.area.name,
-    areaType: location.area.areaType,
+    areaName: location.area?.name ?? "Unassigned Area",
+    areaType: location.area?.areaType ?? AreaType.BACKSTOCK,
     travelSequence: location.travelSequence,
   };
 }
