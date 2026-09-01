@@ -27,6 +27,7 @@ export type WarehouseArea = {
   areaType: AreaType;
   sortOrder: number;
   isFloorStacked?: boolean;
+  isLastResort?: boolean;
 };
 
 export type Sku = {
@@ -151,6 +152,7 @@ function mapArea(row: any): WarehouseArea {
     areaType: row.area_type,
     sortOrder: row.sort_order,
     isFloorStacked: row.is_floor_stacked ?? false,
+    isLastResort: row.is_last_resort ?? false,
   };
 }
 
@@ -1232,6 +1234,72 @@ export const api = {
         full_location_code: input.fullLocationCode ?? null,
       },
     });
+
+    throwIfError(error);
+    return mapLocation(data);
+  },
+
+  async updateArea(input: {
+    id: string;
+    name?: string;
+    areaType?: AreaType;
+    isFloorStacked?: boolean;
+    isLastResort?: boolean;
+  }) {
+    const { data, error } = await supabase.rpc("update_warehouse_area", {
+      input: {
+        id: input.id,
+        name: input.name ?? null,
+        area_type: input.areaType ?? null,
+        is_floor_stacked: input.isFloorStacked ?? null,
+        is_last_resort: input.isLastResort ?? null,
+      },
+    });
+
+    throwIfError(error);
+    return mapArea(data);
+  },
+
+  async listAreaLocations(areaId: string) {
+    const { data, error } = await supabase
+      .from("locations")
+      .select("*")
+      .eq("area_id", areaId)
+      .order("full_location_code", { ascending: true });
+
+    throwIfError(error);
+    return { locations: (data ?? []).map(mapLocation) };
+  },
+
+  async updateLocation(input: {
+    id: string;
+    zone?: string;
+    aisle?: string;
+    bay?: string;
+    level?: string;
+    depthPosition?: number;
+    allowsOverflow?: boolean;
+    isFlexSlot?: boolean;
+    isShortenedHeight?: boolean;
+    status?: LocationStatus;
+  }) {
+    const patch: Record<string, unknown> = {};
+    if (input.zone !== undefined) patch.zone = input.zone;
+    if (input.aisle !== undefined) patch.aisle = input.aisle;
+    if (input.bay !== undefined) patch.bay = input.bay;
+    if (input.level !== undefined) patch.level = input.level;
+    if (input.depthPosition !== undefined) patch.depth_position = input.depthPosition;
+    if (input.allowsOverflow !== undefined) patch.allows_overflow = input.allowsOverflow;
+    if (input.isFlexSlot !== undefined) patch.is_flex_slot = input.isFlexSlot;
+    if (input.isShortenedHeight !== undefined) patch.is_shortened_height = input.isShortenedHeight;
+    if (input.status !== undefined) patch.status = input.status;
+
+    const { data, error } = await supabase
+      .from("locations")
+      .update(patch)
+      .eq("id", input.id)
+      .select("*")
+      .single();
 
     throwIfError(error);
     return mapLocation(data);
