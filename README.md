@@ -1,162 +1,66 @@
-<<<<<<< ours
-<<<<<<< ours
-# Warehouse Inventory Mapping App
+# Warehouse Backstock Tracker
 
-Internal warehouse MVP using Express, TypeScript, Prisma, PostgreSQL, and a small React frontend.
+Internal warehouse MVP for mapping inventory to floor locations, moving pallets with
+validated destinations, and getting smart placement suggestions for inbound product.
+Prioritizes designated/named backstock areas over temporary overflow, and permanently
+reserves each SKU's front "home" pick slot.
 
-For this MVP, Supabase is used only as the managed PostgreSQL provider. The app does not use Supabase client libraries.
+## Architecture
 
-## Supabase Setup
+React (Vite) single-page app that talks **directly to Supabase** using the anon key —
+there is no Express/API server. Reads are plain `supabase-js` queries; pallet moves go
+through a single Postgres RPC, `move_pallet(input jsonb)`, which does the rule-checked
+move atomically.
 
-1. Create a Supabase project.
-2. In Supabase, open the database connection settings and copy the Postgres connection strings.
-3. Create `.env` from `.env.example`.
-4. Set:
-   - `DATABASE_URL` to the pooled/session connection string for Prisma Client runtime traffic.
-   - `DIRECT_URL` to the direct database connection string for Prisma CLI commands.
+- `client/src/api/client.ts` — the one module that owns the Supabase client and all
+  queries/mutations/business logic (placement scoring, move validation, mappers). Every
+  screen calls into this file.
+- `client/src/screens/` — `FloorPlan` (default route), `FloorMap`, `InboundContainer`,
+  `InboundSuggestions`, `MovePallet`, `ReleaseToPicking`, `SkuSearch`.
+- `supabase/` — SQL migrations and seed data for the schema (`products`,
+  `warehouse_areas`, `locations`, `pallets`, `move_transactions`, `inbound_receipts`,
+  `backstock_routing`).
+- `src/services/*.ts`, `src/domainTypes.ts` — **currently dead code.** This was an
+  earlier Express/Prisma backend layer; the server was removed but these files were
+  left behind and nothing imports them anymore. `npm test` only exercises this unused
+  code, not the logic actually running in the browser (`client.ts`). Slated for
+  reconciliation or removal — see [DEV-WARNINGS.md](DEV-WARNINGS.md).
 
-Example shape:
+## Setup
 
-```env
-DATABASE_URL="postgresql://postgres.<PROJECT_REF>:<PASSWORD>@aws-0-<REGION>.pooler.supabase.com:5432/postgres?pgbouncer=true&connection_limit=10&schema=public"
-DIRECT_URL="postgresql://postgres:<PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres?schema=public"
-PORT=4000
-```
+1. Create a Supabase project and apply the migrations in `supabase/migrations/`.
+2. Create `.env` at the repo root with:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL="https://<project-ref>.supabase.co"
+   NEXT_PUBLIC_SUPABASE_ANON_KEY="<anon-key>"
+   ```
+3. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-## Database Workflow
+Supabase anon-key grants are broad dev-time read/write grants on the inventory tables.
+Tighten with per-role RLS before this goes anywhere near production.
 
-Install dependencies:
-
-```bash
-npm install
-```
-
-Generate Prisma Client:
-
-```bash
-npm run prisma:generate
-```
-
-Create and apply the first migration:
-
-```bash
-npm run prisma:migrate -- --name init
-```
-
-For later hosted-environment deploys, apply committed migrations with:
-
-```bash
-npm run prisma:migrate:deploy
-```
-
-Seed the demo warehouse data:
+## Running locally
 
 ```bash
-npm run prisma:seed
+npm run dev
 ```
 
-Run the live database smoke test:
-
-```bash
-npm run smoke:db
-```
-
-The smoke test verifies that the seed created seven active backstock areas, that inbound suggestions rank usable non-overflow space ahead of temporary overflow, and that an invalid front-home-slot move is rejected.
-
-## Running Locally
-
-Run the backend API in one terminal:
-
-```bash
-npm run dev:api
-```
-
-Run the React frontend in a second terminal:
-
-```bash
-npm run dev:web
-```
-
-Local URLs:
-
-- Backend API: `http://localhost:4000/api`
-- Frontend: `http://127.0.0.1:5173`
-
-The frontend reads `VITE_API_BASE_URL` and defaults to `http://localhost:4000/api`.
-
-Build both API and frontend:
+Frontend: `http://127.0.0.1:5173`
 
 ```bash
 npm run build
 ```
 
-Key MVP routes:
+Builds the frontend to `dist-client/`. (`build:services` also runs `tsc` over the dead
+`src/` layer — see note above.)
 
-- `GET /api/locations`
-- `GET /api/pallets`
-- `GET /api/skus`
-- `GET /api/skus/search?q=100220`
-- `POST /api/moves`
-- `GET /api/moves`
-- `GET /api/move-destinations?palletId=...`
-- `GET /api/suggestions/inbound-placement?partNumber=100220&palletQty=2`
+## Planning docs
 
-Frontend MVP screens:
-
-- `/floor-map`
-- `/sku-search`
-- `/move-pallet`
-- `/inbound-suggestions`
-
-## Supabase + Prisma Notes
-
-- Keep Express + Prisma as the only backend data access path for now.
-- Use Supabase as managed Postgres, not as the app client SDK layer.
-- Prisma supports `directUrl` in `schema.prisma`; this lets Prisma Client use `DATABASE_URL` while migrations and admin CLI operations use `DIRECT_URL`.
-- Prefer the pooled/session Supabase URL for the running API to avoid exhausting Postgres connections.
-- Prefer the direct URL for migrations. Migration workflows need stable database sessions and should not depend on transaction-pooling behavior.
-- If the direct URL is not reachable from your network because of IPv6 or firewall limitations, set `DIRECT_URL` to the Supabase session-pooler URI for `prisma migrate deploy`. Avoid the transaction pooler for Prisma migrations.
-- Keep `connection_limit` conservative for the API until real warehouse usage is known.
-- Supabase Row Level Security is powerful, but this backend connects with database credentials through Prisma. Application authorization should be handled in the Express layer unless/until a later auth phase changes that architecture.
-=======
-=======
->>>>>>> theirs
-# Freddie Under Pressure
-
-A lightweight starter website for Freddie's neighborhood pressure washing business. It is modeled after the Green & Clean Yard Care site structure: a static landing page, service cards, availability, simple starting prices, and a booking-request form that can later be connected to the same Supabase/Twilio review workflow.
-
-## Project structure
-
-```text
-.
-├── index.html      # Customer-facing landing page and quote request form
-├── styles.css      # Shared responsive styles
-└── js/
-    ├── config.js   # Public booking endpoint placeholder
-    └── script.js   # Booking form behavior
-```
-
-## Local frontend preview
-
-From the project root:
-
-```bash
-python3 -m http.server 3002
-```
-
-Then open:
-
-```text
-http://localhost:3002/
-```
-
-## Setup checklist
-
-1. Replace placeholder payment links in `index.html`.
-2. Update the service area, availability windows, and prices.
-3. Connect `js/config.js` to a Supabase Edge Function when the booking backend is ready.
-4. Keep Twilio, Supabase, and personal phone-number secrets out of the browser and out of Git.
-<<<<<<< ours
->>>>>>> theirs
-=======
->>>>>>> theirs
+- [warehouse_inventory_mapping_app_spec.md](warehouse_inventory_mapping_app_spec.md) — original product spec
+- [floor-map-redesign-plan.md](floor-map-redesign-plan.md) — done
+- [named-backstock-proximity-plan.md](named-backstock-proximity-plan.md) — done (area set has grown since this was written)
+- [interactive-area-map-plan.md](interactive-area-map-plan.md) — partially built (2D drill-in + batch release done; 2.5D lane view, long-press-to-move, place-into-empty-slot not started)
+- [PARKING-LOT-mixed-pallets.md](PARKING-LOT-mixed-pallets.md) — deferred, not started
