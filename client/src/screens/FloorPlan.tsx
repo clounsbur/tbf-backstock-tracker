@@ -1,6 +1,6 @@
 import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import { api, type Location, type Sku } from "../api/client";
+import { api, type Location, type OrphanSuggestion, type Sku } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { ErrorBlock, LoadingBlock } from "../components/StateBlocks";
 
@@ -70,6 +70,71 @@ export function FloorPlan() {
   const [showSlots, setShowSlots] = useState(false);
 
   const [drillArea, setDrillArea] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Record<string, { palletId: string; code: string }>>({});
+  const [releasing, setReleasing] = useState(false);
+  const [releaseMsg, setReleaseMsg] = useState<string | null>(null);
+
+  const [orphans, setOrphans] = useState<OrphanSuggestion[]>([]);
+  const [orphanMsg, setOrphanMsg] = useState<string | null>(null);
+  const [orphanBusy, setOrphanBusy] = useState<string | null>(null);
+
+  async function loadOrphans() {
+    try {
+      setOrphans(await api.findOrphanedBottoms());
+    } catch {
+      /* non-blocking */
+    }
+  }
+
+  async function relocateOrphan(o: OrphanSuggestion) {
+    if (!o.suggestedRack) return;
+    setOrphanBusy(o.palletId);
+    setOrphanMsg(null);
+    try {
+      await api.movePallet({
+        palletId: o.palletId,
+        toLocationId: o.suggestedRack.id,
+        movedBy: "warehouse.demo",
+        reasonCode: "OVERFLOW_RELOCATION",
+      });
+      setOrphanMsg(`Moved ${o.itemCode ?? "pallet"} from ${o.bottom.fullLocationCode} to ${o.suggestedRack.fullLocationCode}.`);
+      await Promise.all([loadLocations(), loadOrphans()]);
+    } catch (err) {
+      setOrphanMsg(err instanceof Error ? err.message : "Relocation failed");
+    } finally {
+      setOrphanBusy(null);
+    }
+  }
+
+  function toggleSelect(location: Location) {
+    const pid = location.currentPallet?.id;
+    if (!pid) return;
+    setSelected((prev) => {
+      const next = { ...prev };
+      if (next[location.id]) delete next[location.id];
+      else next[location.id] = { palletId: pid, code: location.fullLocationCode };
+      return next;
+    });
+  }
+
+  async function releaseSelected() {
+    const palletIds = Object.values(selected).map((s) => s.palletId);
+    if (!palletIds.length) return;
+    setReleasing(true);
+    setReleaseMsg(null);
+    try {
+      const { released } = await api.releaseToPicking(palletIds);
+      setReleaseMsg(`Released ${released} pallets to picking.`);
+      setSelected({});
+      setSelectMode(false);
+      await loadLocations();
+    } catch (err) {
+      setReleaseMsg(err instanceof Error ? err.message : "Release failed");
+    } finally {
+      setReleasing(false);
+    }
+  }
 
   async function loadLocations() {
     setLoading(true);
@@ -86,6 +151,7 @@ export function FloorPlan() {
 
   useEffect(() => {
     void loadLocations();
+    void loadOrphans();
   }, []);
 
   const countsByArea = useMemo(() => {
@@ -191,6 +257,33 @@ export function FloorPlan() {
     <section>
       <PageHeader eyebrow="Floor Plan" title="Warehouse Map" />
 
+      {orphanMsg && <div className="state-block success">{orphanMsg}</div>}
+      {orphans.length > 0 && (
+        <div className="orphan-panel">
+          <div className="orphan-head">
+            <span><strong>{orphans.length}</strong> lone floor {orphans.length === 1 ? "bottom" : "bottoms"} — consider relocating to a rack to free the floor spot</span>
+          </div>
+          {orphans.map((o) => (
+            <div className="orphan-row" key={o.palletId}>
+              <span className="orphan-loc">{o.bottom.fullLocationCode}</span>
+              <span className="orphan-sku">{o.itemCode ?? "—"}</span>
+              {o.suggestedRack ? (
+                <button
+                  type="button"
+                  className="orphan-move"
+                  disabled={orphanBusy === o.palletId}
+                  onClick={() => relocateOrphan(o)}
+                >
+                  {orphanBusy === o.palletId ? "Moving..." : `Move to ${o.suggestedRack.fullLocationCode}`}
+                </button>
+              ) : (
+                <span className="orphan-none">No rack open — stays</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       <form className="search-bar" onSubmit={handleSearch}>
         <input
           value={query}
@@ -269,7 +362,7 @@ export function FloorPlan() {
                   type="button"
                   className={`floorplan-area${lit ? " lit" : ""}`}
                   style={style}
-                  onClick={() => setDrillArea(areaName)}
+                  onClick={() => { setDrillArea(areaName); setSelectMode(false); setSelected({}); }}
                   title={box.label}
                 >
                   <span className={narrow ? "floorplan-area-name vertical" : "floorplan-area-name"}>{box.label}</span>
@@ -313,10 +406,31 @@ export function FloorPlan() {
               <h2>{drillArea}</h2>
               <p>{drillCount} locations</p>
             </div>
-            <button type="button" className="secondary-button" onClick={() => setDrillArea(null)}>
-              Close
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                className={`pill${selectMode ? " active" : ""}`}
+                onClick={() => { setSelectMode((v) => !v); setSelected({}); }}
+              >
+                {selectMode ? "Cancel select" : "Select to release"}
+              </button>
+              <button type="button" className="secondary-button" onClick={() => { setDrillArea(null); setSelectMode(false); setSelected({}); }}>
+                Close
+              </button>
+            </div>
           </div>
+          {releaseMsg && <div className="state-block success" style={{ marginTop: 0 }}>{releaseMsg}</div>}
+          {selectMode && (
+            <div className="release-bar">
+              <span>{Object.keys(selected).length} selected</span>
+              <button type="button" className="secondary-button" onClick={() => setSelected({})} disabled={!Object.keys(selected).length}>
+                Clear
+              </button>
+              <button type="button" onClick={releaseSelected} disabled={releasing || !Object.keys(selected).length} style={{ marginLeft: "auto" }}>
+                {releasing ? "Releasing..." : `Release ${Object.keys(selected).length} to picking`}
+              </button>
+            </div>
+          )}
           <div className="floorplan-bay-list">
             {drillBays.map((bayGroup) => (
               <div key={bayGroup.bay} className="floorplan-bay-row">
@@ -335,11 +449,13 @@ export function FloorPlan() {
                             return (
                               <div
                                 key={location.id}
-                                className="floorplan-tile"
+                                className={`floorplan-tile${selectMode && location.currentPallet ? " selectable" : ""}${selected[location.id] ? " selected" : ""}${location.isShortenedHeight ? " fp-short-tile" : ""}`}
                                 style={{ borderColor: c.border, background: c.bg }}
                                 title={location.fullLocationCode}
+                                onClick={selectMode && location.currentPallet ? () => toggleSelect(location) : undefined}
                               >
                                 {pos && <span className="floorplan-tile-pos">{pos}</span>}
+                                {location.isShortenedHeight && <span className="fp-short" aria-label="Shortened height">↧</span>}
                                 <span className="floorplan-tile-detail">
                                   {location.currentPallet
                                     ? location.currentPallet.sku?.partNumber ?? location.currentPallet.palletLicensePlate
@@ -359,11 +475,15 @@ export function FloorPlan() {
                       return (
                         <div
                           key={location.id}
-                          className="floorplan-tile"
+                          className={`floorplan-tile${selectMode && location.currentPallet ? " selectable" : ""}${selected[location.id] ? " selected" : ""}${location.isShortenedHeight ? " fp-short-tile" : ""}`}
                           style={{ borderColor: c.border, background: c.bg }}
                           title={location.fullLocationCode}
+                          onClick={selectMode && location.currentPallet ? () => toggleSelect(location) : undefined}
                         >
-                          <span className="floorplan-tile-code">{location.fullLocationCode}</span>
+                          <span className="floorplan-tile-code">
+                            {location.fullLocationCode}
+                            {location.isShortenedHeight && <span className="fp-short" aria-label="Shortened height"> ↧</span>}
+                          </span>
                           <span className="floorplan-tile-detail">
                             {location.currentPallet
                               ? location.currentPallet.sku?.partNumber ?? location.currentPallet.palletLicensePlate

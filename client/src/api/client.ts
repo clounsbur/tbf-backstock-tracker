@@ -464,8 +464,54 @@ export type PutawaySkuPlan = {
   assignments: PutawayAssignment[];
 };
 
-// Derive a SKU's routing family from item_code + description.
-export function skuFamily(itemCode: string, description?: string): Family | null {
+// Resolve a SKU's routing family.
+//
+// Primary source is products.product_family (set by the catalog import). The
+// stored vocabulary uses a single "plush16" value; routing splits 16" plush
+// into plush16_lower / plush16_upper at item_code 60725, so that split is
+// applied here on top of the stored value.
+//
+// Stored families that have no routing rule (machine, merchandising,
+// "custom pillows", "Boxed Fiber") resolve to null so the putaway assigner
+// leaves them for manual placement, exactly as an unknown SKU would.
+//
+// When product_family is null/unknown (e.g. a SKU not yet in the catalog),
+// fall back to the legacy item_code + description heuristic.
+const PLUSH16_SPLIT = 60725; // <= lower, > upper
+function plush16Side(itemCode: string): Family {
+  const num = /^\d+$/.test((itemCode || "").trim()) ? parseInt(itemCode, 10) : NaN;
+  return !Number.isNaN(num) && num > PLUSH16_SPLIT ? "plush16_upper" : "plush16_lower";
+}
+
+function familyFromStored(stored: string | null | undefined, itemCode: string): Family | null {
+  if (!stored) return null;
+  switch (stored.trim().toLowerCase()) {
+    case "fiber":
+      return "fiber";
+    case "accessories":
+      return "accessories";
+    case "clothing":
+      return "clothing";
+    case "plush8":
+      return "plush8";
+    case "plush16":
+      return plush16Side(itemCode);
+    case "plush16_lower":
+      return "plush16_lower";
+    case "plush16_upper":
+      return "plush16_upper";
+    // No routing rule for these stored values -> treat as unrouted (null).
+    case "machine":
+    case "merchandising":
+    case "custom pillows":
+    case "boxed fiber":
+      return null;
+    default:
+      return null; // unrecognized stored value -> fall back to heuristic
+  }
+}
+
+function skuFamilyHeuristic(itemCode: string, description?: string): Family | null {
   const code = (itemCode || "").trim();
   const desc = (description || "").toLowerCase();
   const num = /^\d+$/.test(code) ? parseInt(code, 10) : NaN;
@@ -476,12 +522,45 @@ export function skuFamily(itemCode: string, description?: string): Family | null
   if (/(shoe|sandal|glasses|backpack|collar)/.test(desc)) return "accessories";
   if (!Number.isNaN(num)) {
     if (num >= 50000 && num <= 50999) return "plush8";
-    if (num >= 57000 && num <= 99999) return num <= 60725 ? "plush16_lower" : "plush16_upper";
+    if (num >= 57000 && num <= 99999) return num <= PLUSH16_SPLIT ? "plush16_lower" : "plush16_upper";
   }
   if (desc.trim().startsWith("8")) return "plush8";
-  if (desc.trim().startsWith("16")) return num && num > 60725 ? "plush16_upper" : "plush16_lower";
+  if (desc.trim().startsWith("16")) return num && num > PLUSH16_SPLIT ? "plush16_upper" : "plush16_lower";
   return null;
 }
+
+// Derive a SKU's routing family. Prefers the stored product_family; uses the
+// item_code/description heuristic only when no usable stored family exists.
+export function skuFamily(
+  itemCode: string,
+  description?: string,
+  storedFamily?: string | null,
+): Family | null {
+  const recognized = new Set([
+    "fiber",
+    "accessories",
+    "clothing",
+    "plush8",
+    "plush16",
+    "plush16_lower",
+    "plush16_upper",
+    "machine",
+    "merchandising",
+    "custom pillows",
+    "boxed fiber",
+  ]);
+  if (storedFamily && recognized.has(storedFamily.trim().toLowerCase())) {
+    return familyFromStored(storedFamily, itemCode);
+  }
+  return skuFamilyHeuristic(itemCode, description);
+}
+
+export type OrphanSuggestion = {
+  palletId: string;
+  itemCode: string | null;
+  bottom: Location;            // the lone floor bottom
+  suggestedRack: Location | null;  // best rack target (null = no rack open)
+};
 
 export const api = {
   async listLocations() {
@@ -737,10 +816,14 @@ export const api = {
     const [{ locations }, routing, productResp] = await Promise.all([
       this.listLocations(),
       this.listBackstockRouting(),
-      supabase.from("products").select("item_code,description"),
+      supabase.from("products").select("item_code,description,product_family"),
     ]);
     const descByCode = new Map<string, string>();
-    for (const p of (productResp.data ?? []) as any[]) descByCode.set(p.item_code, p.description ?? "");
+    const familyByCode = new Map<string, string | null>();
+    for (const p of (productResp.data ?? []) as any[]) {
+      descByCode.set(p.item_code, p.description ?? "");
+      familyByCode.set(p.item_code, p.product_family ?? null);
+    }
 
     // open slots grouped by area, plus area meta
     const openByArea = new Map<string, Location[]>();
@@ -771,10 +854,48 @@ export const api = {
 
     const lastResortAreaIds = [...areaIsLastResort.entries()].filter(([, v]) => v).map(([k]) => k);
 
+    // Floor vs rack is decided PER LOCATION, not per area: a position with a slot
+    // grid (slotRow != null) is a RACK slot; a position without one is a FLOOR
+    // stack position. (Michigan is mixed: bays 1-2 are racks, bays 3-15 are floor.)
+    const isRackLoc = (l: Location) => l.slotRow != null;
+    const isFloorLoc = (l: Location) => l.slotRow == null;
+
+    // FLOOR stacks: group floor positions into 2-high stacks keyed by area+bay+depth.
+    type Stack = { areaId: string; key: string; positions: Location[] };
+    const stacksByArea = new Map<string, Stack[]>();
+    for (const [areaId, arr] of openByArea) {
+      const byKey = new Map<string, Location[]>();
+      for (const l of arr) {
+        if (!isFloorLoc(l)) continue; // only floor positions form stacks
+        const k = `${l.bay}|${l.depthPosition}`;
+        byKey.set(k, [...(byKey.get(k) ?? []), l]);
+      }
+      if (!byKey.size) continue;
+      const stacks: Stack[] = Array.from(byKey.entries()).map(([key, positions]) => ({
+        areaId,
+        key,
+        positions: positions.sort((a, b) => a.level.localeCompare(b.level, undefined, { numeric: true })),
+      }));
+      stacksByArea.set(areaId, stacks);
+    }
+    function openFullStacks(areaId: string): number {
+      return (stacksByArea.get(areaId) ?? []).filter(
+        (st) => st.positions.length === 2 && st.positions.every((p) => !consumed.has(p.id)),
+      ).length;
+    }
+    function takeFullStack(areaId: string): Location[] | undefined {
+      const st = (stacksByArea.get(areaId) ?? []).find(
+        (s) => s.positions.length === 2 && s.positions.every((p) => !consumed.has(p.id)),
+      );
+      if (!st) return undefined;
+      st.positions.forEach((p) => consumed.add(p.id));
+      return st.positions;
+    }
+
     return manifest
       .filter((m) => m.itemCode && m.qty > 0)
       .map((m) => {
-        const fam = skuFamily(m.itemCode, descByCode.get(m.itemCode));
+        const fam = skuFamily(m.itemCode, descByCode.get(m.itemCode), familyByCode.get(m.itemCode));
         const eligible = fam
           ? Array.from(new Set(routing.filter((r) => r.family === fam).map((r) => r.areaId)))
           : [];
@@ -783,59 +904,109 @@ export const api = {
         // 2) any other non-last-resort area with space
         // 3) last-resort areas (Whitefish)
         const assignments: PutawayAssignment[] = [];
-        // Normal (full-height) slots are always preferred. Shortened-height slots are a
-        // LAST RESORT — only used after every NORMAL slot everywhere is exhausted, and
-        // when chosen they are flagged needsApproval (manual OK required).
-        function takeFrom(areaId: string, shortOnly: boolean): Location | undefined {
+
+        // ---- RACK picking (used for the odd leftover pallet & any rack placement) ----
+        // Normal full-height rack slots preferred; shortened-height is last resort + approval.
+        function rackTakeFrom(areaId: string, shortOnly: boolean): Location | undefined {
           return (openByArea.get(areaId) ?? []).find(
-            (l) => !consumed.has(l.id) && Boolean(l.isShortenedHeight) === shortOnly,
+            (l) => isRackLoc(l) && !consumed.has(l.id) && Boolean(l.isShortenedHeight) === shortOnly,
           );
         }
-        function remainingFrom(areaId: string, shortOnly: boolean): number {
+        function rackRemaining(areaId: string, shortOnly: boolean): number {
           return (openByArea.get(areaId) ?? []).filter(
-            (l) => !consumed.has(l.id) && Boolean(l.isShortenedHeight) === shortOnly,
+            (l) => isRackLoc(l) && !consumed.has(l.id) && Boolean(l.isShortenedHeight) === shortOnly,
           ).length;
         }
-        function pickArea(shortOnly: boolean): string | undefined {
-          const elig = eligible.filter((a) => remainingFrom(a, shortOnly) > 0)
-            .sort((a, b) => remainingFrom(b, shortOnly) - remainingFrom(a, shortOnly));
+        function pickRackArea(shortOnly: boolean): string | undefined {
+          const elig = eligible.filter((a) => rackRemaining(a, shortOnly) > 0)
+            .sort((a, b) => rackRemaining(b, shortOnly) - rackRemaining(a, shortOnly));
           if (elig.length) return elig[0];
           const others = [...openByArea.keys()]
-            .filter((a) => !eligible.includes(a) && !areaIsLastResort.get(a) && remainingFrom(a, shortOnly) > 0)
-            .sort((a, b) => remainingFrom(b, shortOnly) - remainingFrom(a, shortOnly));
+            .filter((a) => !eligible.includes(a) && !areaIsLastResort.get(a) && rackRemaining(a, shortOnly) > 0)
+            .sort((a, b) => rackRemaining(b, shortOnly) - rackRemaining(a, shortOnly));
+          return others[0];
+        }
+        // Fallback placement order for a single pallet (odd leftover, or when no floor stack):
+        // 1) NORMAL rack slot (family rack -> other rack)
+        // 2) NORMAL last-resort area slot (Whitefish), incl. a floor position there
+        // 3) SHORT rack/last-resort slot (requires approval) -- TRUE last resort, after Whitefish
+        // 4) none (manual)
+        function placeOnRack(): { loc: Location | null; needsApproval: boolean } {
+          // 1) normal racks
+          let area = pickRackArea(false);
+          if (area) { const s = rackTakeFrom(area, false); if (s) { consumed.add(s.id); return { loc: s, needsApproval: false }; } }
+          // 2) normal slot in a last-resort area (Whitefish) — any open non-short position
+          for (const lr of lastResortAreaIds) {
+            const s = (openByArea.get(lr) ?? []).find((l) => !consumed.has(l.id) && !l.isShortenedHeight);
+            if (s) { consumed.add(s.id); return { loc: s, needsApproval: false }; }
+          }
+          // 3) short slots anywhere (approval) — only now, after Whitefish normal is exhausted
+          area = pickRackArea(true);
+          if (area) { const s = rackTakeFrom(area, true); if (s) { consumed.add(s.id); return { loc: s, needsApproval: true }; } }
+          for (const lr of lastResortAreaIds) {
+            const s = (openByArea.get(lr) ?? []).find((l) => !consumed.has(l.id) && l.isShortenedHeight);
+            if (s) { consumed.add(s.id); return { loc: s, needsApproval: true }; }
+          }
+          return { loc: null, needsApproval: false };
+        }
+
+        // ---- FLOOR stack picking (full same-SKU 2-high stacks) ----
+        function pickFloorArea(): string | undefined {
+          const elig = eligible.filter((a) => openFullStacks(a) > 0)
+            .sort((a, b) => openFullStacks(b) - openFullStacks(a));
+          if (elig.length) return elig[0];
+          const others = [...stacksByArea.keys()]
+            .filter((a) => !eligible.includes(a) && !areaIsLastResort.get(a) && openFullStacks(a) > 0)
+            .sort((a, b) => openFullStacks(b) - openFullStacks(a));
           if (others.length) return others[0];
-          const lr = lastResortAreaIds.filter((a) => remainingFrom(a, shortOnly) > 0)
-            .sort((a, b) => remainingFrom(b, shortOnly) - remainingFrom(a, shortOnly));
+          const lr = lastResortAreaIds.filter((a) => openFullStacks(a) > 0)
+            .sort((a, b) => openFullStacks(b) - openFullStacks(a));
           return lr[0];
         }
-        for (let k = 0; k < m.qty; k++) {
-          let loc: Location | null = null;
-          let needsApproval = false;
-          // pass 1: normal slots
-          let area = pickArea(false);
-          if (area) {
-            const slot = takeFrom(area, false);
-            if (slot) { loc = slot; consumed.add(slot.id); }
-          }
-          // pass 2: shortened-height slots (last resort, requires approval)
-          if (!loc) {
-            area = pickArea(true);
-            if (area) {
-              const slot = takeFrom(area, true);
-              if (slot) { loc = slot; consumed.add(slot.id); needsApproval = true; }
+
+        // Decide where this SKU goes: if any floor area is eligible/available, fill in PAIRS
+        // (each pair = one full same-SKU stack, bottom then top). Odd leftover -> rack.
+        // If no floor capacity at all, everything falls back to racks (then short, then manual).
+        const slotsAssigned: Array<{ loc: Location | null; needsApproval: boolean }> = [];
+        let k = 0;
+        while (k < m.qty) {
+          const remaining = m.qty - k;
+          const floorArea = pickFloorArea();
+          if (remaining >= 2 && floorArea) {
+            const stack = takeFullStack(floorArea); // [bottom, top]
+            if (stack && stack.length === 2) {
+              slotsAssigned.push({ loc: stack[0], needsApproval: false }); // bottom
+              slotsAssigned.push({ loc: stack[1], needsApproval: false }); // top
+              k += 2;
+              continue;
             }
           }
-          // up to 4 alternative open slots for manual override (normal first, then short)
+          // remaining === 1 (odd leftover) OR no floor stack available -> rack
+          slotsAssigned.push(placeOnRack());
+          k += 1;
+        }
+
+        // build up to 4 alternative open slots per pallet for manual override
+        function altOptions(exclude: Location | null): Location[] {
           const options: Location[] = [];
           for (const shortOnly of [false, true]) {
             for (const a of [...eligible, ...openByArea.keys()]) {
               for (const l of openByArea.get(a) ?? []) {
-                if (l.id !== loc?.id && !consumed.has(l.id) && Boolean(l.isShortenedHeight) === shortOnly && options.length < 4) options.push(l);
+                if (l.id !== exclude?.id && !consumed.has(l.id) && Boolean(l.isShortenedHeight) === shortOnly && options.length < 4) options.push(l);
               }
             }
           }
-          assignments.push({ palletIndex: k + 1, palletOf: m.qty, location: loc, needsApproval, options });
+          return options;
         }
+        slotsAssigned.forEach((sa, i) => {
+          assignments.push({
+            palletIndex: i + 1,
+            palletOf: m.qty,
+            location: sa.loc,
+            needsApproval: sa.needsApproval,
+            options: altOptions(sa.loc),
+          });
+        });
         return {
           itemCode: m.itemCode,
           description: descByCode.get(m.itemCode) ?? "",
@@ -898,5 +1069,121 @@ export const api = {
     throwIfError(locErr);
 
     return { placed: placements.length };
+  },
+
+  // Release pallets to the picking floor: mark CONSUMED + clear location, log
+  // RELEASED_TO_PICKING moves, open the slots. Pallet rows persist for history.
+  async releaseToPicking(
+    palletIds: string[],
+    movedBy = "warehouse.demo",
+  ): Promise<{ released: number }> {
+    if (!palletIds.length) return { released: 0 };
+    const { data: pallets, error: pErr } = await supabase
+      .from("pallets")
+      .select("id,product_id,current_location_id")
+      .in("id", palletIds)
+      .neq("status", "CONSUMED");
+    throwIfError(pErr);
+    const rows = (pallets ?? []) as Array<{ id: string; product_id: number; current_location_id: string | null }>;
+    if (!rows.length) return { released: 0 };
+
+    const moves = rows.map((r) => ({
+      pallet_id: r.id,
+      product_id: r.product_id,
+      from_location_id: r.current_location_id,
+      to_location_id: null,
+      moved_by: movedBy,
+      reason_code: "RELEASED_TO_PICKING",
+    }));
+    const { error: mvErr } = await supabase.from("move_transactions").insert(moves);
+    throwIfError(mvErr);
+
+    const { error: upErr } = await supabase
+      .from("pallets")
+      .update({ status: "CONSUMED", current_location_id: null })
+      .in("id", rows.map((r) => r.id));
+    throwIfError(upErr);
+
+    const freedLocs = rows.map((r) => r.current_location_id).filter((x): x is string => Boolean(x));
+    if (freedLocs.length) {
+      const { error: locErr } = await supabase
+        .from("locations")
+        .update({ status: "OPEN" })
+        .in("id", freedLocs);
+      throwIfError(locErr);
+    }
+
+    return { released: rows.length };
+  },
+
+  // Find floor stacks with an occupied BOTTOM but an EMPTY TOP (a lone bottom,
+  // usually left after the top was released). Suggest relocating each to a rack
+  // (family rack first by open capacity, then any open rack). suggestedRack=null
+  // means no rack space is open, so it stays.
+  async findOrphanedBottoms(): Promise<OrphanSuggestion[]> {
+    const [{ locations }, routing] = await Promise.all([
+      this.listLocations(),
+      this.listBackstockRouting(),
+    ]);
+    const isFloor = (l: Location) => l.slotRow == null;
+    const isRack = (l: Location) => l.slotRow != null;
+
+    // group floor positions by area+bay+depth (a stack)
+    const stacks = new Map<string, Location[]>();
+    for (const l of locations) {
+      if (!isFloor(l)) continue;
+      const k = `${l.areaId}|${l.bay}|${l.depthPosition}`;
+      stacks.set(k, [...(stacks.get(k) ?? []), l]);
+    }
+
+    // open rack slots by area (normal height first)
+    const openRackByArea = new Map<string, Location[]>();
+    for (const l of locations) {
+      if (isRack(l) && l.status !== "BLOCKED" && !l.currentPallet && !l.isShortenedHeight) {
+        openRackByArea.set(l.areaId, [...(openRackByArea.get(l.areaId) ?? []), l]);
+      }
+    }
+    const claimed = new Set<string>();
+    function bestRackFor(sku: Sku | null | undefined): Location | null {
+      const itemCode = sku?.partNumber ?? null;
+      const fam = itemCode ? skuFamily(itemCode, sku?.description, sku?.productFamily) : null;
+      const famAreas = fam
+        ? Array.from(new Set(routing.filter((r) => r.family === fam).map((r) => r.areaId)))
+        : [];
+      const areasByCap = [
+        ...famAreas,
+        ...[...openRackByArea.keys()].filter((a) => !famAreas.includes(a)),
+      ].sort(
+        (a, b) =>
+          (openRackByArea.get(b)?.filter((l) => !claimed.has(l.id)).length ?? 0) -
+          (openRackByArea.get(a)?.filter((l) => !claimed.has(l.id)).length ?? 0),
+      );
+      for (const a of areasByCap) {
+        const slot = (openRackByArea.get(a) ?? []).find((l) => !claimed.has(l.id));
+        if (slot) { claimed.add(slot.id); return slot; }
+      }
+      return null;
+    }
+
+    const suggestions: OrphanSuggestion[] = [];
+    for (const positions of stacks.values()) {
+      if (positions.length < 2) continue; // need a real 2-high stack
+      const byLevel = positions.sort((a, b) => a.level.localeCompare(b.level, undefined, { numeric: true }));
+      const bottom = byLevel[0];
+      const top = byLevel[byLevel.length - 1];
+      const bottomOcc = Boolean(bottom.currentPallet);
+      const topOcc = Boolean(top.currentPallet);
+      if (bottomOcc && !topOcc && bottom.currentPallet) {
+        const sku = bottom.currentPallet.sku;
+        const itemCode = sku?.partNumber ?? null;
+        suggestions.push({
+          palletId: bottom.currentPallet.id,
+          itemCode,
+          bottom,
+          suggestedRack: bestRackFor(sku),
+        });
+      }
+    }
+    return suggestions;
   },
 };

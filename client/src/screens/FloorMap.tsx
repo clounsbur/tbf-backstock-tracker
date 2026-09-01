@@ -309,24 +309,30 @@ function LocationTile({ location }: { location: Location }) {
   const line = statusLine(location);
 
   return (
-    <article className={`location-tile ${location.status.toLowerCase().replaceAll("_", "-")}${open ? " open" : ""}`}>
+    <article
+      className={`location-tile ${location.status.toLowerCase().replaceAll("_", "-")}${open ? " open" : ""}${location.isShortenedHeight ? " short" : ""}`}
+      title={location.isShortenedHeight ? "Shortened height — last-resort slot" : undefined}
+    >
       <div className="tile-topline">
         <strong>D{location.depthPosition}</strong>
-        {dot && <span className="status-dot" style={{ background: dot }} aria-hidden="true" />}
+        <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          {location.isShortenedHeight && <span className="short-flag" aria-label="Shortened height">↧</span>}
+          {dot && <span className="status-dot" style={{ background: dot }} aria-hidden="true" />}
+        </span>
       </div>
       <span className="tile-code">{location.fullLocationCode}</span>
-      <span className="tile-detail">Home: {location.homeSku?.partNumber ?? "Unassigned"}</span>
       <span className={`tile-status tone-${line.tone}`}>{line.text}</span>
     </article>
   );
 }
 
-const LEGEND_ITEMS: Array<{ label: string; color: string; dashed?: boolean }> = [
+const LEGEND_ITEMS: Array<{ label: string; color: string; dashed?: boolean; short?: boolean }> = [
   { label: "Home SKU", color: "#1D9E75" },
   { label: "Overflow", color: "#EF9F27" },
   { label: "Reserved / flex", color: "#2563EB" },
   { label: "Blocked", color: "#E24B4A" },
   { label: "Open", color: "transparent", dashed: true },
+  { label: "↧ short (last resort)", color: "#EF9F27", short: true },
 ];
 
 function LocationLegend() {
@@ -334,12 +340,16 @@ function LocationLegend() {
     <div className="tile-legend">
       {LEGEND_ITEMS.map((item) => (
         <span key={item.label} className="legend-item">
-          <span
-            className={`legend-dot${item.dashed ? " dashed" : ""}`}
-            style={item.dashed ? undefined : { background: item.color }}
-            aria-hidden="true"
-          />
-          {item.label}
+          {item.short ? (
+            <span className="short-flag" aria-hidden="true">↧</span>
+          ) : (
+            <span
+              className={`legend-dot${item.dashed ? " dashed" : ""}`}
+              style={item.dashed ? undefined : { background: item.color }}
+              aria-hidden="true"
+            />
+          )}
+          {item.label.replace("↧ ", "")}
         </span>
       ))}
     </div>

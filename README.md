@@ -1,3 +1,5 @@
+<<<<<<< ours
+<<<<<<< ours
 # Warehouse Inventory Mapping App
 
 Internal warehouse MVP using Express, TypeScript, Prisma, PostgreSQL, and a small React frontend.
@@ -116,3 +118,45 @@ Frontend MVP screens:
 - If the direct URL is not reachable from your network because of IPv6 or firewall limitations, set `DIRECT_URL` to the Supabase session-pooler URI for `prisma migrate deploy`. Avoid the transaction pooler for Prisma migrations.
 - Keep `connection_limit` conservative for the API until real warehouse usage is known.
 - Supabase Row Level Security is powerful, but this backend connects with database credentials through Prisma. Application authorization should be handled in the Express layer unless/until a later auth phase changes that architecture.
+=======
+=======
+>>>>>>> theirs
+# Freddie Under Pressure
+
+A lightweight starter website for Freddie's neighborhood pressure washing business. It is modeled after the Green & Clean Yard Care site structure: a static landing page, service cards, availability, simple starting prices, and a booking-request form that can later be connected to the same Supabase/Twilio review workflow.
+
+## Project structure
+
+```text
+.
+├── index.html      # Customer-facing landing page and quote request form
+├── styles.css      # Shared responsive styles
+└── js/
+    ├── config.js   # Public booking endpoint placeholder
+    └── script.js   # Booking form behavior
+```
+
+## Local frontend preview
+
+From the project root:
+
+```bash
+python3 -m http.server 3002
+```
+
+Then open:
+
+```text
+http://localhost:3002/
+```
+
+## Setup checklist
+
+1. Replace placeholder payment links in `index.html`.
+2. Update the service area, availability windows, and prices.
+3. Connect `js/config.js` to a Supabase Edge Function when the booking backend is ready.
+4. Keep Twilio, Supabase, and personal phone-number secrets out of the browser and out of Git.
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
