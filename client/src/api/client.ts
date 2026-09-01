@@ -1186,4 +1186,54 @@ export const api = {
     }
     return suggestions;
   },
+
+  async listAreas() {
+    const { data, error } = await supabase
+      .from("warehouse_areas")
+      .select("*")
+      .order("sort_order", { ascending: true });
+
+    throwIfError(error);
+    return { areas: (data ?? []).map(mapArea) };
+  },
+
+  async createArea(input: { name: string; areaType: AreaType; isFloorStacked?: boolean }) {
+    const { data, error } = await supabase.rpc("create_warehouse_area", {
+      input: {
+        name: input.name,
+        area_type: input.areaType,
+        is_floor_stacked: input.isFloorStacked ?? false,
+      },
+    });
+
+    throwIfError(error);
+    return mapArea(data);
+  },
+
+  async createLocation(input: {
+    areaId: string;
+    zone: string;
+    aisle: string;
+    bay: string;
+    level?: string;
+    depthPosition?: number;
+    storageType: "PERMANENT" | "TEMPORARY";
+    fullLocationCode?: string;
+  }) {
+    const { data, error } = await supabase.rpc("create_location", {
+      input: {
+        area_id: input.areaId,
+        zone: input.zone,
+        aisle: input.aisle,
+        bay: input.bay,
+        level: input.level ?? "1",
+        depth_position: input.depthPosition ?? 1,
+        storage_type: input.storageType,
+        full_location_code: input.fullLocationCode ?? null,
+      },
+    });
+
+    throwIfError(error);
+    return mapLocation(data);
+  },
 };

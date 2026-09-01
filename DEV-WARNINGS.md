@@ -59,3 +59,10 @@ were the part that kept getting cut.
 - **Vite temp files** `client/vite.config.ts.timestamp-*.mjs` are git-ignored; don't commit them.
 - **Supabase grants are broad dev-time grants** (anon can read/write inventory tables).
   Tighten to per-role RLS before production.
+- **Supabase "Enable Data API" toggle** (Project Settings → API) must be ON. If it's off,
+  every REST/RPC call fails with `schema "pg_pgrst_no_exposed_schemas" does not exist` /
+  "Could not query the database for the schema cache" — looks like a broken migration or
+  a dead project, but direct SQL (`supabase db query`) works fine the whole time, which is
+  what makes this confusing to diagnose. Burned an hour on this on 2026-09-01 tracking down
+  why TBF Backstock Tracker's REST API and Edge Functions were failing after being an
+  unused/never-configured project.

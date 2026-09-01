@@ -1,7 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
-import { Boxes, ClipboardList, LayoutDashboard, Map, MoveRight, PackageX, PackagePlus, Search } from "lucide-react";
+import { Boxes, ClipboardList, LayoutDashboard, Map, MapPin, MoveRight, PackageX, PackagePlus, Search } from "lucide-react";
+import { AddLocation } from "./screens/AddLocation";
 import { FloorMap } from "./screens/FloorMap";
 import { FloorPlan } from "./screens/FloorPlan";
 import { InboundContainer } from "./screens/InboundContainer";
@@ -31,6 +32,7 @@ function App() {
             <NavItem to="/inbound-container" icon={<PackagePlus size={18} />} label="Incoming Container" />
             <NavItem to="/release" icon={<PackageX size={18} />} label="Release to Picking" />
             <NavItem to="/inbound-suggestions" icon={<ClipboardList size={18} />} label="Inbound Suggestions" />
+            <NavItem to="/add-location" icon={<MapPin size={18} />} label="Add Location" />
           </nav>
         </aside>
         <main className="content">
@@ -43,6 +45,7 @@ function App() {
             <Route path="/inbound-container" element={<InboundContainer />} />
             <Route path="/release" element={<ReleaseToPicking />} />
             <Route path="/inbound-suggestions" element={<InboundSuggestions />} />
+            <Route path="/add-location" element={<AddLocation />} />
           </Routes>
         </main>
       </div>
