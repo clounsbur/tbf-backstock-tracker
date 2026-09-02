@@ -4,6 +4,7 @@ import { api, type Location } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { RecentMoves } from "../components/RecentMoves";
 import { EmptyBlock, ErrorBlock, LoadingBlock } from "../components/StateBlocks";
+import { locationStatusLabel } from "../components/StatusBadge";
 
 const AREA_TINTS: Record<string, { bg: string; border: string }> = {
   Superior: { bg: "#eef2ff", border: "#8b9cf6" },
@@ -195,7 +196,7 @@ export function FloorMap() {
             <option value="ALL">All statuses</option>
             {statuses.map((status) => (
               <option key={status} value={status}>
-                {status}
+                {locationStatusLabel(status)}
               </option>
             ))}
           </select>

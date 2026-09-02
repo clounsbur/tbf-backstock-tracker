@@ -56,6 +56,34 @@ function statusColor(location: Location): { border: string; bg: string } {
   }
 }
 
+// Plain-language position within a rack bay's grid, e.g. "Top-L", "Level 2-Mid",
+// "Bottom-R" -- shown alongside the location code so someone unfamiliar with
+// the code scheme can still tell where a slot physically is. Row 1 is the top
+// of the rack; only the very top and bottom rows get a plain word, rows in
+// between are numbered. Column wording adapts to however wide the bay is.
+function rackPositionLabel(location: Location, maxRow: number, maxCol: number): string | null {
+  if (location.slotRow == null) return null;
+
+  const rowLabel =
+    maxRow <= 1
+      ? null
+      : location.slotRow === 1
+        ? "Top"
+        : location.slotRow === maxRow
+          ? "Bottom"
+          : `Level ${location.slotRow}`;
+
+  let colLabel: string | null = null;
+  if (location.slotCol != null && maxCol > 1) {
+    if (maxCol === 2) colLabel = location.slotCol === 1 ? "L" : "R";
+    else if (maxCol === 3) colLabel = location.slotCol === 1 ? "L" : location.slotCol === 3 ? "R" : "Mid";
+    else colLabel = `${location.slotCol}`;
+  }
+
+  if (rowLabel && colLabel) return `${rowLabel}-${colLabel}`;
+  return rowLabel ?? colLabel;
+}
+
 export function FloorPlan() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -245,7 +273,11 @@ export function FloorPlan() {
             levels: levels.sort((a, b) => b.level.localeCompare(a.level, undefined, { numeric: true })),
           }));
         const bayIsFloor = sorted.some((t) => t.slotRow == null);
-        return { bay, tiles: sorted, depths, bayIsFloor };
+        const rows = sorted.map((t) => t.slotRow).filter((r): r is number => r != null);
+        const cols = sorted.map((t) => t.slotCol).filter((c): c is number => c != null);
+        const maxSlotRow = rows.length ? Math.max(...rows) : 0;
+        const maxSlotCol = cols.length ? Math.max(...cols) : 0;
+        return { bay, tiles: sorted, depths, bayIsFloor, maxSlotRow, maxSlotCol };
       });
   }, [drillArea, locations]);
   const drillCount = useMemo(
@@ -472,6 +504,7 @@ export function FloorPlan() {
                   <div className="floorplan-bay-tiles">
                     {bayGroup.tiles.map((location) => {
                       const c = statusColor(location);
+                      const posLabel = rackPositionLabel(location, bayGroup.maxSlotRow, bayGroup.maxSlotCol);
                       return (
                         <div
                           key={location.id}
@@ -480,6 +513,7 @@ export function FloorPlan() {
                           title={location.fullLocationCode}
                           onClick={selectMode && location.currentPallet ? () => toggleSelect(location) : undefined}
                         >
+                          {posLabel && <span className="floorplan-tile-pos">{posLabel}</span>}
                           <span className="floorplan-tile-code">
                             {location.fullLocationCode}
                             {location.isShortenedHeight && <span className="fp-short" aria-label="Shortened height"> ↧</span>}

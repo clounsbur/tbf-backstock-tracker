@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { Location } from "../api/client";
+import { locationStatusLabel } from "./StatusBadge";
 
 // Same visual language as the Floor Plan drill-in view (grouped by bay, tinted
 // by status) so location selection looks and behaves consistently everywhere
@@ -80,9 +81,7 @@ export function LocationPicker({
                   <span className="floorplan-tile-detail">
                     {location.currentPallet
                       ? location.currentPallet.sku?.partNumber ?? location.currentPallet.palletLicensePlate
-                      : location.status === "OPEN" || location.status === "OPEN_FLEX_SLOT"
-                        ? "Open"
-                        : location.status.replace(/_/g, " ").toLowerCase()}
+                      : locationStatusLabel(location.status)}
                   </span>
                 </div>
               );

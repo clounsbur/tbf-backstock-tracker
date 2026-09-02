@@ -3,6 +3,7 @@ import { MapPin, Save } from "lucide-react";
 import { api, type AreaType, type Location, type LocationStatus, type WarehouseArea } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { ErrorBlock, LoadingBlock } from "../components/StateBlocks";
+import { locationStatusLabel } from "../components/StatusBadge";
 
 const AREA_TYPES: AreaType[] = ["BACKSTOCK", "FLEX_RESERVE", "OVERFLOW", "FRONT_HOME", "RECEIVING"];
 const LOCATION_STATUSES: LocationStatus[] = [
@@ -12,6 +13,15 @@ const LOCATION_STATUSES: LocationStatus[] = [
   "RESERVED_HOME_SLOT",
   "OPEN_FLEX_SLOT",
   "BLOCKED",
+];
+
+type Tab = "add-location" | "edit-area" | "resize" | "add-area";
+
+const TABS: Array<{ key: Tab; label: string }> = [
+  { key: "add-location", label: "Add Location" },
+  { key: "edit-area", label: "Edit Area" },
+  { key: "resize", label: "Resize Grid" },
+  { key: "add-area", label: "Add Area" },
 ];
 
 type LocationEdits = Partial<{
@@ -27,43 +37,46 @@ type LocationEdits = Partial<{
 }>;
 
 export function AddLocation() {
+  const [activeTab, setActiveTab] = useState<Tab>("add-location");
+
   const [areas, setAreas] = useState<WarehouseArea[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [creatingArea, setCreatingArea] = useState(false);
-  const [newAreaName, setNewAreaName] = useState("");
-  const [newAreaType, setNewAreaType] = useState<AreaType>("BACKSTOCK");
-  const [newAreaFloorStacked, setNewAreaFloorStacked] = useState(false);
+  // -- one shared area selection + its locations, used by Add Location,
+  // Edit Area, and Resize Grid so picking an area in one tab carries over. --
+  const [selectedAreaId, setSelectedAreaId] = useState("");
+  const [areaLocations, setAreaLocations] = useState<Location[]>([]);
+  const [loadingAreaLocations, setLoadingAreaLocations] = useState(false);
 
-  const [areaId, setAreaId] = useState("");
-  const [zone, setZone] = useState("");
-  const [aisle, setAisle] = useState("");
-  const [bay, setBay] = useState("");
-  const [level, setLevel] = useState("1");
-  const [depthPosition, setDepthPosition] = useState(1);
-  const [storageType, setStorageType] = useState<"PERMANENT" | "TEMPORARY">("PERMANENT");
-
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  // -- edit existing area / its locations --
-  const [editAreaId, setEditAreaId] = useState("");
   const [editAreaName, setEditAreaName] = useState("");
   const [editAreaType, setEditAreaType] = useState<AreaType>("BACKSTOCK");
   const [editAreaFloorStacked, setEditAreaFloorStacked] = useState(false);
   const [editAreaLastResort, setEditAreaLastResort] = useState(false);
   const [savingArea, setSavingArea] = useState(false);
 
-  const [editLocations, setEditLocations] = useState<Location[]>([]);
-  const [loadingLocations, setLoadingLocations] = useState(false);
   const [locationEdits, setLocationEdits] = useState<Record<string, LocationEdits>>({});
   const [savingLocationId, setSavingLocationId] = useState<string | null>(null);
   const [locationFilter, setLocationFilter] = useState("");
 
+  // -- add a single new location --
+  const [manualZone, setManualZone] = useState("");
+  const [aisle, setAisle] = useState("");
+  const [bay, setBay] = useState("");
+  const [level, setLevel] = useState("1");
+  const [depthPosition, setDepthPosition] = useState(1);
+  const [storageType, setStorageType] = useState<"PERMANENT" | "TEMPORARY">("PERMANENT");
+
+  // -- add a brand new area --
+  const [newAreaName, setNewAreaName] = useState("");
+  const [newAreaType, setNewAreaType] = useState<AreaType>("BACKSTOCK");
+  const [newAreaFloorStacked, setNewAreaFloorStacked] = useState(false);
+
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
   // -- resize an area's permanent-location grid (add/remove aisle/bay/level/depth range) --
-  const [resizeZone, setResizeZone] = useState("");
   const [resizeLevelStart, setResizeLevelStart] = useState(1);
   const [resizeLevelEnd, setResizeLevelEnd] = useState(1);
   const [resizeAisleStart, setResizeAisleStart] = useState(1);
@@ -82,8 +95,7 @@ export function AddLocation() {
     try {
       const { areas: loaded } = await api.listAreas();
       setAreas(loaded);
-      if (!areaId && loaded.length) setAreaId(loaded[0].id);
-      if (!editAreaId && loaded.length) selectEditArea(loaded[0]);
+      if (!selectedAreaId && loaded.length) selectArea(loaded[0]);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Could not load areas");
     } finally {
@@ -96,8 +108,8 @@ export function AddLocation() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function selectEditArea(area: WarehouseArea) {
-    setEditAreaId(area.id);
+  function selectArea(area: WarehouseArea) {
+    setSelectedAreaId(area.id);
     setEditAreaName(area.name);
     setEditAreaType(area.areaType);
     setEditAreaFloorStacked(Boolean(area.isFloorStacked));
@@ -106,23 +118,36 @@ export function AddLocation() {
   }
 
   async function loadAreaLocations(id: string) {
-    setLoadingLocations(true);
+    setLoadingAreaLocations(true);
     setLocationEdits({});
     setLocationFilter("");
     setResizePreview(null);
     try {
       const { locations } = await api.listAreaLocations(id);
-      setEditLocations(locations);
-      // Default the resize tool to a zone this area's permanent locations
-      // actually use, so the dropdown below never starts empty.
-      const permanentZone = locations.find((l) => !l.allowsOverflow)?.zone;
-      setResizeZone(permanentZone ?? locations[0]?.zone ?? "");
+      setAreaLocations(locations);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load locations for that area");
     } finally {
-      setLoadingLocations(false);
+      setLoadingAreaLocations(false);
     }
   }
+
+  // Every code prefix this area's locations already use. When there's
+  // exactly one (the normal case), it's used automatically -- nobody adding
+  // a location or resizing a grid should have to know or type it. It's only
+  // ever shown as a fallback when an area is brand new or genuinely mixed.
+  const areaZones = useMemo(() => {
+    const zones = new Set(areaLocations.map((l) => l.zone));
+    return Array.from(zones).sort();
+  }, [areaLocations]);
+  const permanentZones = useMemo(() => {
+    const zones = new Set(areaLocations.filter((l) => !l.allowsOverflow).map((l) => l.zone));
+    return Array.from(zones).sort();
+  }, [areaLocations]);
+
+  const selectedArea = areas.find((a) => a.id === selectedAreaId);
+  const newLocationZone = areaZones.length === 1 ? areaZones[0] : manualZone.trim();
+  const resizeZone = permanentZones.length === 1 ? permanentZones[0] : manualZone.trim();
 
   async function handleCreateArea(event: FormEvent) {
     event.preventDefault();
@@ -139,9 +164,9 @@ export function AddLocation() {
       setSuccess(`Added area "${area.name}".`);
       setNewAreaName("");
       setNewAreaFloorStacked(false);
-      setCreatingArea(false);
       await loadAreas();
-      setAreaId(area.id);
+      selectArea(area);
+      setActiveTab("add-location");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add area");
     } finally {
@@ -151,14 +176,14 @@ export function AddLocation() {
 
   async function handleCreateLocation(event: FormEvent) {
     event.preventDefault();
-    if (!areaId || !zone.trim() || !aisle.trim() || !bay.trim()) return;
+    if (!selectedAreaId || !newLocationZone || !aisle.trim() || !bay.trim()) return;
     setSubmitting(true);
     setError(null);
     setSuccess(null);
     try {
       const location = await api.createLocation({
-        areaId,
-        zone: zone.trim(),
+        areaId: selectedAreaId,
+        zone: newLocationZone,
         aisle: aisle.trim(),
         bay: bay.trim(),
         level: level.trim() || "1",
@@ -166,12 +191,11 @@ export function AddLocation() {
         storageType,
       });
       setSuccess(`Added ${storageType === "PERMANENT" ? "permanent" : "temporary"} location "${location.fullLocationCode}".`);
-      setZone("");
       setAisle("");
       setBay("");
       setLevel("1");
       setDepthPosition(1);
-      if (areaId === editAreaId) void loadAreaLocations(areaId);
+      void loadAreaLocations(selectedAreaId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add location");
     } finally {
@@ -181,13 +205,13 @@ export function AddLocation() {
 
   async function handleSaveArea(event: FormEvent) {
     event.preventDefault();
-    if (!editAreaId) return;
+    if (!selectedAreaId) return;
     setSavingArea(true);
     setError(null);
     setSuccess(null);
     try {
       const area = await api.updateArea({
-        id: editAreaId,
+        id: selectedAreaId,
         name: editAreaName.trim() || undefined,
         areaType: editAreaType,
         isFloorStacked: editAreaFloorStacked,
@@ -204,8 +228,8 @@ export function AddLocation() {
 
   function resizeRangeValid(): boolean {
     return (
-      Boolean(editAreaId) &&
-      Boolean(resizeZone.trim()) &&
+      Boolean(selectedAreaId) &&
+      Boolean(resizeZone) &&
       resizeAisleStart <= resizeAisleEnd &&
       resizeBayStart <= resizeBayEnd &&
       resizeLevelStart <= resizeLevelEnd &&
@@ -220,8 +244,8 @@ export function AddLocation() {
     setResizePreview(null);
     try {
       const result = await api.resizePermanentLocations({
-        areaId: editAreaId,
-        zone: resizeZone.trim(),
+        areaId: selectedAreaId,
+        zone: resizeZone,
         levelStart: resizeLevelStart,
         levelEnd: resizeLevelEnd,
         aisleStart: resizeAisleStart,
@@ -247,8 +271,8 @@ export function AddLocation() {
     setError(null);
     try {
       const result = await api.resizePermanentLocations({
-        areaId: editAreaId,
-        zone: resizeZone.trim(),
+        areaId: selectedAreaId,
+        zone: resizeZone,
         levelStart: resizeLevelStart,
         levelEnd: resizeLevelEnd,
         aisleStart: resizeAisleStart,
@@ -266,7 +290,7 @@ export function AddLocation() {
           : `Removed ${result.removed} empty location(s).${result.skippedOccupied ? ` Skipped ${result.skippedOccupied} occupied.` : ""}`,
       );
       setResizePreview(null);
-      await loadAreaLocations(editAreaId);
+      await loadAreaLocations(selectedAreaId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not apply resize");
     } finally {
@@ -307,7 +331,7 @@ export function AddLocation() {
     setError(null);
     try {
       const updated = await api.updateLocation({ id: loc.id, ...edits });
-      setEditLocations((prev) => prev.map((l) => (l.id === loc.id ? updated : l)));
+      setAreaLocations((prev) => prev.map((l) => (l.id === loc.id ? updated : l)));
       setLocationEdits((prev) => {
         const next = { ...prev };
         delete next[loc.id];
@@ -322,17 +346,28 @@ export function AddLocation() {
 
   const filteredLocations = useMemo(() => {
     const term = locationFilter.trim().toLowerCase();
-    if (!term) return editLocations;
-    return editLocations.filter((l) => l.fullLocationCode.toLowerCase().includes(term));
-  }, [editLocations, locationFilter]);
+    if (!term) return areaLocations;
+    return areaLocations.filter((l) => l.fullLocationCode.toLowerCase().includes(term));
+  }, [areaLocations, locationFilter]);
 
-  // Zones actually used by this area's permanent (non-overflow) locations --
-  // picking from this instead of free-typing a zone prevents attaching a
-  // typo'd or wrong-area zone code (e.g. "WF" ending up under Superior).
-  const permanentZonesForEditArea = useMemo(() => {
-    const zones = new Set(editLocations.filter((l) => !l.allowsOverflow).map((l) => l.zone));
-    return Array.from(zones).sort();
-  }, [editLocations]);
+  const areaPicker = (
+    <label>
+      Area
+      <select
+        value={selectedAreaId}
+        onChange={(event) => {
+          const area = areas.find((a) => a.id === event.target.value);
+          if (area) selectArea(area);
+        }}
+      >
+        {areas.map((area) => (
+          <option key={area.id} value={area.id}>
+            {area.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 
   return (
     <section>
@@ -343,161 +378,118 @@ export function AddLocation() {
 
       {!loading && !loadError && (
         <>
+          <div className="button-row" role="tablist" aria-label="Warehouse setup sections">
+            {TABS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.key}
+                className={`pill${activeTab === tab.key ? " active" : ""}`}
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  setError(null);
+                  setSuccess(null);
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
           {error && <ErrorBlock message={error} />}
           {success && <div className="state-block success">{success}</div>}
 
-          <form className="panel form-panel" onSubmit={handleCreateLocation}>
-            <h2>New location</h2>
-            <p className="subtle">
-              Permanent locations are reserved, standing storage. Temporary locations are marked
-              overflow-capable so they only get used when a SKU's permanent slots are full.
-            </p>
+          {activeTab === "add-location" && (
+            <form className="panel form-panel" onSubmit={handleCreateLocation}>
+              <h2>Add a location</h2>
+              <p className="subtle">
+                Permanent locations are reserved, standing storage. Temporary locations are marked
+                overflow-capable so they only get used when a SKU's permanent slots are full.
+              </p>
 
-            <div className="form-grid">
-              <label>
-                Area
-                <select value={areaId} onChange={(event) => setAreaId(event.target.value)}>
-                  {areas.map((area) => (
-                    <option key={area.id} value={area.id}>
-                      {area.name} ({area.areaType})
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Storage type
-                <select
-                  value={storageType}
-                  onChange={(event) => setStorageType(event.target.value as "PERMANENT" | "TEMPORARY")}
-                >
-                  <option value="PERMANENT">Permanent</option>
-                  <option value="TEMPORARY">Temporary (overflow-capable)</option>
-                </select>
-              </label>
-
-              <label>
-                Zone
-                <input value={zone} onChange={(event) => setZone(event.target.value)} placeholder="e.g. SUP" />
-              </label>
-
-              <label>
-                Aisle
-                <input value={aisle} onChange={(event) => setAisle(event.target.value)} placeholder="e.g. 01" />
-              </label>
-
-              <label>
-                Bay
-                <input value={bay} onChange={(event) => setBay(event.target.value)} placeholder="e.g. 12" />
-              </label>
-
-              <label>
-                Level
-                <input value={level} onChange={(event) => setLevel(event.target.value)} placeholder="1" />
-              </label>
-
-              <label>
-                Depth position
-                <input
-                  type="number"
-                  min="1"
-                  value={depthPosition}
-                  onChange={(event) => setDepthPosition(Math.max(1, Number(event.target.value) || 1))}
-                />
-              </label>
-            </div>
-
-            <div className="button-row">
-              <button type="submit" disabled={submitting || !areaId}>
-                <MapPin size={18} aria-hidden="true" />
-                {submitting ? "Adding..." : "Add location"}
-              </button>
-            </div>
-          </form>
-
-          <div className="panel form-panel">
-            <div className="panel-heading">
-              <h2>New area</h2>
-              {!creatingArea && (
-                <button type="button" className="secondary-button" onClick={() => setCreatingArea(true)}>
-                  + New area
-                </button>
-              )}
-            </div>
-
-            {creatingArea && (
-              <form onSubmit={handleCreateArea}>
-                <div className="form-grid">
-                  <label>
-                    Name
-                    <input value={newAreaName} onChange={(event) => setNewAreaName(event.target.value)} placeholder="e.g. Sturgeon" />
-                  </label>
-                  <label>
-                    Area type
-                    <select value={newAreaType} onChange={(event) => setNewAreaType(event.target.value as AreaType)}>
-                      {AREA_TYPES.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={newAreaFloorStacked}
-                      onChange={(event) => setNewAreaFloorStacked(event.target.checked)}
-                      style={{ marginRight: 8, width: "auto" }}
-                    />
-                    Floor-stacked (not racked)
-                  </label>
-                </div>
-                <div className="button-row">
-                  <button type="button" className="secondary-button" onClick={() => setCreatingArea(false)}>
-                    Cancel
-                  </button>
-                  <button type="submit" disabled={submitting || !newAreaName.trim()}>
-                    {submitting ? "Adding..." : "Add area"}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-
-          <div className="panel form-panel">
-            <h2>Edit existing area</h2>
-            <p className="subtle">
-              Change an area's name, type, or flags, and fix up individual locations below — depth,
-              overflow/flex capability, shortened-height, or status.
-            </p>
-
-            <form onSubmit={handleSaveArea}>
               <div className="form-grid">
+                {areaPicker}
+
                 <label>
-                  Area
+                  Storage type
                   <select
-                    value={editAreaId}
-                    onChange={(event) => {
-                      const area = areas.find((a) => a.id === event.target.value);
-                      if (area) selectEditArea(area);
-                    }}
+                    value={storageType}
+                    onChange={(event) => setStorageType(event.target.value as "PERMANENT" | "TEMPORARY")}
                   >
-                    {areas.map((area) => (
-                      <option key={area.id} value={area.id}>
-                        {area.name} ({area.areaType})
-                      </option>
-                    ))}
+                    <option value="PERMANENT">Permanent</option>
+                    <option value="TEMPORARY">Temporary (overflow-capable)</option>
                   </select>
                 </label>
 
                 <label>
-                  Name
-                  <input value={editAreaName} onChange={(event) => setEditAreaName(event.target.value)} />
+                  Aisle
+                  <input value={aisle} onChange={(event) => setAisle(event.target.value)} placeholder="e.g. 01" />
                 </label>
 
                 <label>
+                  Bay
+                  <input value={bay} onChange={(event) => setBay(event.target.value)} placeholder="e.g. 12" />
+                </label>
+
+                <label>
+                  Level
+                  <input value={level} onChange={(event) => setLevel(event.target.value)} placeholder="1" />
+                </label>
+
+                <label>
+                  Depth position
+                  <input
+                    type="number"
+                    min="1"
+                    value={depthPosition}
+                    onChange={(event) => setDepthPosition(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                </label>
+
+                {areaZones.length !== 1 && (
+                  <label>
+                    Code prefix
+                    <input
+                      value={manualZone}
+                      onChange={(event) => setManualZone(event.target.value)}
+                      placeholder={selectedArea ? selectedArea.name.slice(0, 3).toUpperCase() : "e.g. SUP"}
+                    />
+                  </label>
+                )}
+              </div>
+
+              {areaZones.length === 1 && (
+                <p className="subtle">
+                  This location's code will start with <strong>{areaZones[0]}</strong>, matching the rest
+                  of {selectedArea?.name ?? "this area"}.
+                </p>
+              )}
+
+              <div className="button-row">
+                <button type="submit" disabled={submitting || !selectedAreaId || !newLocationZone}>
+                  <MapPin size={18} aria-hidden="true" />
+                  {submitting ? "Adding..." : "Add location"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {activeTab === "add-area" && (
+            <form className="panel form-panel" onSubmit={handleCreateArea}>
+              <h2>Add a new area</h2>
+              <p className="subtle">
+                Create a whole new named storage area (like "Superior" or "Whitefish") before adding
+                locations to it.
+              </p>
+              <div className="form-grid">
+                <label>
+                  Name
+                  <input value={newAreaName} onChange={(event) => setNewAreaName(event.target.value)} placeholder="e.g. Sturgeon" />
+                </label>
+                <label>
                   Area type
-                  <select value={editAreaType} onChange={(event) => setEditAreaType(event.target.value as AreaType)}>
+                  <select value={newAreaType} onChange={(event) => setNewAreaType(event.target.value as AreaType)}>
                     {AREA_TYPES.map((type) => (
                       <option key={type} value={type}>
                         {type}
@@ -505,319 +497,368 @@ export function AddLocation() {
                     ))}
                   </select>
                 </label>
-
                 <label>
                   <input
                     type="checkbox"
-                    checked={editAreaFloorStacked}
-                    onChange={(event) => setEditAreaFloorStacked(event.target.checked)}
+                    checked={newAreaFloorStacked}
+                    onChange={(event) => setNewAreaFloorStacked(event.target.checked)}
                     style={{ marginRight: 8, width: "auto" }}
                   />
                   Floor-stacked (not racked)
                 </label>
-
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={editAreaLastResort}
-                    onChange={(event) => setEditAreaLastResort(event.target.checked)}
-                    style={{ marginRight: 8, width: "auto" }}
-                  />
-                  Last resort (global overflow only)
-                </label>
               </div>
-
               <div className="button-row">
-                <button type="submit" disabled={savingArea || !editAreaId}>
-                  <Save size={18} aria-hidden="true" />
-                  {savingArea ? "Saving..." : "Save area"}
+                <button type="submit" disabled={submitting || !newAreaName.trim()}>
+                  {submitting ? "Adding..." : "Add area"}
                 </button>
               </div>
             </form>
+          )}
 
-            <div className="search-bar" style={{ marginTop: 16 }}>
-              <input
-                value={locationFilter}
-                onChange={(event) => setLocationFilter(event.target.value)}
-                placeholder="Filter locations by code (e.g. SUP-19)"
-              />
-            </div>
-
-            {loadingLocations && <LoadingBlock />}
-
-            {!loadingLocations && editLocations.length > 0 && (
-              <div className="table-wrap tall" style={{ marginTop: 12 }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Code</th>
-                      <th>Zone</th>
-                      <th>Aisle</th>
-                      <th>Bay</th>
-                      <th>Level</th>
-                      <th>Depth</th>
-                      <th>Overflow</th>
-                      <th>Flex</th>
-                      <th>Short</th>
-                      <th>Status</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredLocations.map((loc) => (
-                      <tr key={loc.id}>
-                        <td>
-                          <strong>{loc.fullLocationCode}</strong>
-                        </td>
-                        <td>
-                          <input
-                            value={editValue(loc, "zone") as string}
-                            onChange={(event) => setEdit(loc.id, "zone", event.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            value={editValue(loc, "aisle") as string}
-                            onChange={(event) => setEdit(loc.id, "aisle", event.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            value={editValue(loc, "bay") as string}
-                            onChange={(event) => setEdit(loc.id, "bay", event.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            value={editValue(loc, "level") as string}
-                            onChange={(event) => setEdit(loc.id, "level", event.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="number"
-                            min="1"
-                            value={editValue(loc, "depthPosition") as number}
-                            onChange={(event) => setEdit(loc.id, "depthPosition", Math.max(1, Number(event.target.value) || 1))}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={editValue(loc, "allowsOverflow") as boolean}
-                            onChange={(event) => setEdit(loc.id, "allowsOverflow", event.target.checked)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={editValue(loc, "isFlexSlot") as boolean}
-                            onChange={(event) => setEdit(loc.id, "isFlexSlot", event.target.checked)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={editValue(loc, "isShortenedHeight") as boolean}
-                            onChange={(event) => setEdit(loc.id, "isShortenedHeight", event.target.checked)}
-                          />
-                        </td>
-                        <td>
-                          <select
-                            value={editValue(loc, "status") as string}
-                            onChange={(event) => setEdit(loc.id, "status", event.target.value as LocationStatus)}
-                          >
-                            {LOCATION_STATUSES.map((status) => (
-                              <option key={status} value={status}>
-                                {status}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            disabled={!isDirty(loc.id) || savingLocationId === loc.id}
-                            onClick={() => handleSaveLocation(loc)}
-                          >
-                            {savingLocationId === loc.id ? "..." : "Save"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {!loadingLocations && editLocations.length === 0 && (
-              <p className="subtle" style={{ marginTop: 12 }}>
-                No locations in this area yet.
-              </p>
-            )}
-          </div>
-
-          <div className="panel form-panel">
-            <h2>Resize permanent locations</h2>
-            <p className="subtle">
-              Add or remove every location in a block of aisles &times; bays &times; levels &times; depth
-              positions for {areas.find((a) => a.id === editAreaId)?.name ?? "the selected area"}. Each
-              range below is inclusive on both ends (e.g. aisle 1 to 3 covers aisles 1, 2, and 3) &mdash;
-              set start and end to the same number to target just one. Only permanent (non-overflow)
-              locations are affected, and nothing occupied is ever removed.
-            </p>
-
-            <div className="form-grid">
-              <label>
-                Zone code
-                {permanentZonesForEditArea.length > 0 ? (
-                  <select value={resizeZone} onChange={(event) => setResizeZone(event.target.value)}>
-                    {permanentZonesForEditArea.map((zone) => (
-                      <option key={zone} value={zone}>
-                        {zone}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    value={resizeZone}
-                    onChange={(event) => setResizeZone(event.target.value)}
-                    placeholder="e.g. SUP"
-                  />
-                )}
-              </label>
-
-              <label>
-                Level range
-                <div className="button-row" style={{ marginTop: 0 }}>
-                  <input
-                    type="number"
-                    min="1"
-                    value={resizeLevelStart}
-                    onChange={(event) => setResizeLevelStart(Math.max(1, Number(event.target.value) || 1))}
-                  />
-                  <span className="subtle" style={{ alignSelf: "center" }}>to</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={resizeLevelEnd}
-                    onChange={(event) => setResizeLevelEnd(Math.max(1, Number(event.target.value) || 1))}
-                  />
-                </div>
-              </label>
-
-              <label>
-                Aisle range
-                <div className="button-row" style={{ marginTop: 0 }}>
-                  <input
-                    type="number"
-                    min="1"
-                    value={resizeAisleStart}
-                    onChange={(event) => setResizeAisleStart(Math.max(1, Number(event.target.value) || 1))}
-                  />
-                  <span className="subtle" style={{ alignSelf: "center" }}>to</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={resizeAisleEnd}
-                    onChange={(event) => setResizeAisleEnd(Math.max(1, Number(event.target.value) || 1))}
-                  />
-                </div>
-              </label>
-
-              <label>
-                Bay range
-                <div className="button-row" style={{ marginTop: 0 }}>
-                  <input
-                    type="number"
-                    min="1"
-                    value={resizeBayStart}
-                    onChange={(event) => setResizeBayStart(Math.max(1, Number(event.target.value) || 1))}
-                  />
-                  <span className="subtle" style={{ alignSelf: "center" }}>to</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={resizeBayEnd}
-                    onChange={(event) => setResizeBayEnd(Math.max(1, Number(event.target.value) || 1))}
-                  />
-                </div>
-              </label>
-
-              <label>
-                Depth range
-                <div className="button-row" style={{ marginTop: 0 }}>
-                  <input
-                    type="number"
-                    min="1"
-                    value={resizeDepthStart}
-                    onChange={(event) => setResizeDepthStart(Math.max(1, Number(event.target.value) || 1))}
-                  />
-                  <span className="subtle" style={{ alignSelf: "center" }}>to</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={resizeDepthEnd}
-                    onChange={(event) => setResizeDepthEnd(Math.max(1, Number(event.target.value) || 1))}
-                  />
-                </div>
-              </label>
-
-              <label>
-                Action
-                <select
-                  value={resizeAction}
-                  onChange={(event) => {
-                    setResizeAction(event.target.value as "ADD" | "REMOVE");
-                    setResizePreview(null);
-                  }}
-                >
-                  <option value="ADD">Add missing locations in this range</option>
-                  <option value="REMOVE">Remove empty locations in this range</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="button-row">
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={resizing || !resizeRangeValid()}
-                onClick={handlePreviewResize}
-              >
-                {resizing ? "Checking..." : "Preview"}
-              </button>
-
-              {resizePreview && resizeAction === "ADD" && (
-                <button type="button" disabled={resizing || resizePreview.wouldAdd === 0} onClick={handleConfirmResize}>
-                  {resizing ? "Adding..." : `Add ${resizePreview.wouldAdd} location(s)`}
-                </button>
-              )}
-
-              {resizePreview && resizeAction === "REMOVE" && (
-                <button type="button" disabled={resizing || resizePreview.wouldRemove === 0} onClick={handleConfirmResize}>
-                  {resizing ? "Removing..." : `Remove ${resizePreview.wouldRemove} empty location(s)`}
-                </button>
-              )}
-            </div>
-
-            {!resizePreview && !resizeZone.trim() && (
-              <p className="subtle">Enter a zone code above, then click Preview.</p>
-            )}
-
-            {resizePreview && (
+          {activeTab === "edit-area" && (
+            <div className="panel form-panel">
+              <h2>Edit an area</h2>
               <p className="subtle">
-                {resizeAction === "ADD"
-                  ? `${resizePreview.wouldAdd} location(s) would be added.`
-                  : `${resizePreview.wouldRemove} empty location(s) would be removed.${
-                      resizePreview.skippedOccupied
-                        ? ` ${resizePreview.skippedOccupied} location(s) in range are occupied and will be left alone.`
-                        : ""
-                    }`}
+                Change an area's name, type, or flags, and fix up individual locations below — depth,
+                overflow/flex capability, shortened-height, or status.
               </p>
-            )}
-          </div>
+
+              <form onSubmit={handleSaveArea}>
+                <div className="form-grid">
+                  {areaPicker}
+
+                  <label>
+                    Name
+                    <input value={editAreaName} onChange={(event) => setEditAreaName(event.target.value)} />
+                  </label>
+
+                  <label>
+                    Area type
+                    <select value={editAreaType} onChange={(event) => setEditAreaType(event.target.value as AreaType)}>
+                      {AREA_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={editAreaFloorStacked}
+                      onChange={(event) => setEditAreaFloorStacked(event.target.checked)}
+                      style={{ marginRight: 8, width: "auto" }}
+                    />
+                    Floor-stacked (not racked)
+                  </label>
+
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={editAreaLastResort}
+                      onChange={(event) => setEditAreaLastResort(event.target.checked)}
+                      style={{ marginRight: 8, width: "auto" }}
+                    />
+                    Last resort (global overflow only)
+                  </label>
+                </div>
+
+                <div className="button-row">
+                  <button type="submit" disabled={savingArea || !selectedAreaId}>
+                    <Save size={18} aria-hidden="true" />
+                    {savingArea ? "Saving..." : "Save area"}
+                  </button>
+                </div>
+              </form>
+
+              <div className="search-bar" style={{ marginTop: 16 }}>
+                <input
+                  value={locationFilter}
+                  onChange={(event) => setLocationFilter(event.target.value)}
+                  placeholder="Filter locations by code (e.g. SUP-19)"
+                />
+              </div>
+
+              {loadingAreaLocations && <LoadingBlock />}
+
+              {!loadingAreaLocations && areaLocations.length > 0 && (
+                <div className="table-wrap tall" style={{ marginTop: 12 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Code</th>
+                        <th>Zone</th>
+                        <th>Aisle</th>
+                        <th>Bay</th>
+                        <th>Level</th>
+                        <th>Depth</th>
+                        <th>Overflow</th>
+                        <th>Flex</th>
+                        <th>Short</th>
+                        <th>Status</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredLocations.map((loc) => (
+                        <tr key={loc.id}>
+                          <td>
+                            <strong>{loc.fullLocationCode}</strong>
+                          </td>
+                          <td>
+                            <input
+                              value={editValue(loc, "zone") as string}
+                              onChange={(event) => setEdit(loc.id, "zone", event.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              value={editValue(loc, "aisle") as string}
+                              onChange={(event) => setEdit(loc.id, "aisle", event.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              value={editValue(loc, "bay") as string}
+                              onChange={(event) => setEdit(loc.id, "bay", event.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              value={editValue(loc, "level") as string}
+                              onChange={(event) => setEdit(loc.id, "level", event.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              min="1"
+                              value={editValue(loc, "depthPosition") as number}
+                              onChange={(event) => setEdit(loc.id, "depthPosition", Math.max(1, Number(event.target.value) || 1))}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={editValue(loc, "allowsOverflow") as boolean}
+                              onChange={(event) => setEdit(loc.id, "allowsOverflow", event.target.checked)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={editValue(loc, "isFlexSlot") as boolean}
+                              onChange={(event) => setEdit(loc.id, "isFlexSlot", event.target.checked)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={editValue(loc, "isShortenedHeight") as boolean}
+                              onChange={(event) => setEdit(loc.id, "isShortenedHeight", event.target.checked)}
+                            />
+                          </td>
+                          <td>
+                            <select
+                              value={editValue(loc, "status") as string}
+                              onChange={(event) => setEdit(loc.id, "status", event.target.value as LocationStatus)}
+                            >
+                              {LOCATION_STATUSES.map((status) => (
+                                <option key={status} value={status}>
+                                  {locationStatusLabel(status)}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={!isDirty(loc.id) || savingLocationId === loc.id}
+                              onClick={() => handleSaveLocation(loc)}
+                            >
+                              {savingLocationId === loc.id ? "..." : "Save"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {!loadingAreaLocations && areaLocations.length === 0 && (
+                <p className="subtle" style={{ marginTop: 12 }}>
+                  No locations in this area yet.
+                </p>
+              )}
+            </div>
+          )}
+
+          {activeTab === "resize" && (
+            <div className="panel form-panel">
+              <h2>Resize a permanent-location grid</h2>
+              <p className="subtle">
+                Add or remove every location in a block of aisles &times; bays &times; levels &times; depth
+                positions for {selectedArea?.name ?? "the selected area"}. Each range below is inclusive on
+                both ends (e.g. aisle 1 to 3 covers aisles 1, 2, and 3) &mdash; set start and end to the same
+                number to target just one. Only permanent (non-overflow) locations are affected, and
+                nothing occupied is ever removed.
+              </p>
+
+              <div className="form-grid">
+                {areaPicker}
+
+                {permanentZones.length !== 1 && (
+                  <label>
+                    Code prefix
+                    <input
+                      value={manualZone}
+                      onChange={(event) => setManualZone(event.target.value)}
+                      placeholder={selectedArea ? selectedArea.name.slice(0, 3).toUpperCase() : "e.g. SUP"}
+                    />
+                  </label>
+                )}
+
+                <label>
+                  Level range
+                  <div className="button-row" style={{ marginTop: 0 }}>
+                    <input
+                      type="number"
+                      min="1"
+                      value={resizeLevelStart}
+                      onChange={(event) => setResizeLevelStart(Math.max(1, Number(event.target.value) || 1))}
+                    />
+                    <span className="subtle" style={{ alignSelf: "center" }}>to</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={resizeLevelEnd}
+                      onChange={(event) => setResizeLevelEnd(Math.max(1, Number(event.target.value) || 1))}
+                    />
+                  </div>
+                </label>
+
+                <label>
+                  Aisle range
+                  <div className="button-row" style={{ marginTop: 0 }}>
+                    <input
+                      type="number"
+                      min="1"
+                      value={resizeAisleStart}
+                      onChange={(event) => setResizeAisleStart(Math.max(1, Number(event.target.value) || 1))}
+                    />
+                    <span className="subtle" style={{ alignSelf: "center" }}>to</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={resizeAisleEnd}
+                      onChange={(event) => setResizeAisleEnd(Math.max(1, Number(event.target.value) || 1))}
+                    />
+                  </div>
+                </label>
+
+                <label>
+                  Bay range
+                  <div className="button-row" style={{ marginTop: 0 }}>
+                    <input
+                      type="number"
+                      min="1"
+                      value={resizeBayStart}
+                      onChange={(event) => setResizeBayStart(Math.max(1, Number(event.target.value) || 1))}
+                    />
+                    <span className="subtle" style={{ alignSelf: "center" }}>to</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={resizeBayEnd}
+                      onChange={(event) => setResizeBayEnd(Math.max(1, Number(event.target.value) || 1))}
+                    />
+                  </div>
+                </label>
+
+                <label>
+                  Depth range
+                  <div className="button-row" style={{ marginTop: 0 }}>
+                    <input
+                      type="number"
+                      min="1"
+                      value={resizeDepthStart}
+                      onChange={(event) => setResizeDepthStart(Math.max(1, Number(event.target.value) || 1))}
+                    />
+                    <span className="subtle" style={{ alignSelf: "center" }}>to</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={resizeDepthEnd}
+                      onChange={(event) => setResizeDepthEnd(Math.max(1, Number(event.target.value) || 1))}
+                    />
+                  </div>
+                </label>
+
+                <label>
+                  Action
+                  <select
+                    value={resizeAction}
+                    onChange={(event) => {
+                      setResizeAction(event.target.value as "ADD" | "REMOVE");
+                      setResizePreview(null);
+                    }}
+                  >
+                    <option value="ADD">Add missing locations in this range</option>
+                    <option value="REMOVE">Remove empty locations in this range</option>
+                  </select>
+                </label>
+              </div>
+
+              {permanentZones.length === 1 && (
+                <p className="subtle">
+                  Using code prefix <strong>{permanentZones[0]}</strong>, matching this area's other
+                  permanent locations.
+                </p>
+              )}
+
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={resizing || !resizeRangeValid()}
+                  onClick={handlePreviewResize}
+                >
+                  {resizing ? "Checking..." : "Preview"}
+                </button>
+
+                {resizePreview && resizeAction === "ADD" && (
+                  <button type="button" disabled={resizing || resizePreview.wouldAdd === 0} onClick={handleConfirmResize}>
+                    {resizing ? "Adding..." : `Add ${resizePreview.wouldAdd} location(s)`}
+                  </button>
+                )}
+
+                {resizePreview && resizeAction === "REMOVE" && (
+                  <button type="button" disabled={resizing || resizePreview.wouldRemove === 0} onClick={handleConfirmResize}>
+                    {resizing ? "Removing..." : `Remove ${resizePreview.wouldRemove} empty location(s)`}
+                  </button>
+                )}
+              </div>
+
+              {!resizePreview && !resizeZone && (
+                <p className="subtle">Enter a code prefix above, then click Preview.</p>
+              )}
+
+              {resizePreview && (
+                <p className="subtle">
+                  {resizeAction === "ADD"
+                    ? `${resizePreview.wouldAdd} location(s) would be added.`
+                    : `${resizePreview.wouldRemove} empty location(s) would be removed.${
+                        resizePreview.skippedOccupied
+                          ? ` ${resizePreview.skippedOccupied} location(s) in range are occupied and will be left alone.`
+                          : ""
+                      }`}
+                </p>
+              )}
+            </div>
+          )}
         </>
       )}
     </section>

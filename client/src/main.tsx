@@ -34,7 +34,7 @@ function App() {
             <NavItem to="/inbound-container" icon={<PackagePlus size={18} />} label="Incoming Container" />
             <NavItem to="/release" icon={<PackageX size={18} />} label="Release to Picking" />
             <NavItem to="/inbound-suggestions" icon={<ClipboardList size={18} />} label="Inbound Suggestions" />
-            <NavItem to="/add-location" icon={<MapPin size={18} />} label="Add Location" />
+            <NavItem to="/add-location" icon={<MapPin size={18} />} label="Warehouse Setup" />
           </nav>
         </aside>
         <main className="content">
