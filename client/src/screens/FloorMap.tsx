@@ -5,6 +5,7 @@ import { PageHeader } from "../components/PageHeader";
 import { RecentMoves } from "../components/RecentMoves";
 import { EmptyBlock, ErrorBlock, LoadingBlock } from "../components/StateBlocks";
 import { locationStatusLabel } from "../components/StatusBadge";
+import { rackPositionLabel } from "../components/rackPosition";
 
 const AREA_TINTS: Record<string, { bg: string; border: string }> = {
   Superior: { bg: "#eef2ff", border: "#8b9cf6" },
@@ -277,7 +278,12 @@ export function FloorMap() {
                             <div className="bay-label">Bay {bayGroup.bay}</div>
                             <div className="depth-grid">
                               {bayGroup.locations.map((location) => (
-                                <LocationTile key={location.id} location={location} />
+                                <LocationTile
+                                  key={location.id}
+                                  location={location}
+                                  maxSlotRow={bayGroup.maxSlotRow}
+                                  maxSlotCol={bayGroup.maxSlotCol}
+                                />
                               ))}
                             </div>
                           </div>
@@ -304,10 +310,19 @@ export function FloorMap() {
   );
 }
 
-function LocationTile({ location }: { location: Location }) {
+function LocationTile({
+  location,
+  maxSlotRow,
+  maxSlotCol,
+}: {
+  location: Location;
+  maxSlotRow: number;
+  maxSlotCol: number;
+}) {
   const open = isLocationOpen(location);
   const dot = statusDotColor(location);
   const line = statusLine(location);
+  const posLabel = rackPositionLabel(location, maxSlotRow, maxSlotCol);
 
   return (
     <article
@@ -315,7 +330,7 @@ function LocationTile({ location }: { location: Location }) {
       title={location.isShortenedHeight ? "Shortened height — last-resort slot" : undefined}
     >
       <div className="tile-topline">
-        <strong>D{location.depthPosition}</strong>
+        <strong>{posLabel ?? `D${location.depthPosition}`}</strong>
         <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {location.isShortenedHeight && <span className="short-flag" aria-label="Shortened height">↧</span>}
           {dot && <span className="status-dot" style={{ background: dot }} aria-hidden="true" />}
@@ -414,10 +429,16 @@ function groupLocations(locations: Location[]) {
           aisle,
           bays: Array.from(bayMap.entries())
             .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-            .map(([bay, bayLocations]) => ({
-              bay,
-              locations: bayLocations.sort((a, b) => a.depthPosition - b.depthPosition),
-            })),
+            .map(([bay, bayLocations]) => {
+              const rows = bayLocations.map((l) => l.slotRow).filter((r): r is number => r != null);
+              const cols = bayLocations.map((l) => l.slotCol).filter((c): c is number => c != null);
+              return {
+                bay,
+                locations: bayLocations.sort((a, b) => a.depthPosition - b.depthPosition),
+                maxSlotRow: rows.length ? Math.max(...rows) : 0,
+                maxSlotCol: cols.length ? Math.max(...cols) : 0,
+              };
+            }),
         })),
     }));
 }
