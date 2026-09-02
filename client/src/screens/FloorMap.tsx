@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, RefreshCw, Search } from "lucide-react";
+import { ArrowUp, RefreshCw, Search, X } from "lucide-react";
 import { api, type Location, type Sku } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { RecentMoves } from "../components/RecentMoves";
@@ -73,14 +73,31 @@ export function FloorMap() {
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
   const [, forceTick] = useState(0);
   const areaRefs = useRef<Record<string, HTMLElement | null>>({});
+  const locationRefs = useRef<Record<string, HTMLElement | null>>({});
 
   const [skuQuery, setSkuQuery] = useState("");
   const [searchSku, setSearchSku] = useState<Sku | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [showResultsModal, setShowResultsModal] = useState(false);
 
   function jumpToArea(key: string) {
     areaRefs.current[key]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function jumpToLocation(locationId: string) {
+    setShowResultsModal(false);
+    const el = locationRefs.current[locationId];
+    if (!el) return;
+    // A tile can be tens of thousands of pixels down the page, so jump there
+    // instantly rather than smooth-scrolling the whole distance -- wait a
+    // beat for the modal to unmount first or the browser can miscalculate
+    // the target's position.
+    setTimeout(() => {
+      el.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "center" });
+      el.classList.add("jump-flash");
+      setTimeout(() => el.classList.remove("jump-flash"), 1600);
+    }, 50);
   }
 
   async function handleSkuSearch(event: FormEvent) {
@@ -105,6 +122,9 @@ export function FloorMap() {
       // if the current filters would otherwise hide the matching locations.
       setQuickFilter("ALL");
       setStatusFilter("ALL");
+      const hasMatches = (sku.pallets ?? []).some((p) => p.status !== "CONSUMED" && p.currentLocation) ||
+        (sku.homeLocations ?? []).length > 0;
+      setShowResultsModal(hasMatches);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : "Search failed");
       setSearchSku(null);
@@ -117,6 +137,7 @@ export function FloorMap() {
     setSkuQuery("");
     setSearchSku(null);
     setSearchError(null);
+    setShowResultsModal(false);
   }
 
   const searchHomeLocationIds = useMemo(
@@ -146,6 +167,27 @@ export function FloorMap() {
     return Array.from(byArea.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [searchSku]);
   const searchTotalUnits = useMemo(() => searchAreas.reduce((sum, a) => sum + a.units, 0), [searchAreas]);
+
+  const searchResultRows = useMemo(() => {
+    if (!searchSku) return [];
+    const rows: Array<{ location: Location; kind: "pallet" | "home"; qty?: number }> = [];
+    const seen = new Set<string>();
+    for (const p of searchSku.pallets ?? []) {
+      if (p.status === "CONSUMED" || !p.currentLocation) continue;
+      rows.push({ location: p.currentLocation, kind: "pallet", qty: p.quantity });
+      seen.add(p.currentLocation.id);
+    }
+    for (const loc of searchSku.homeLocations ?? []) {
+      if (seen.has(loc.id)) continue;
+      rows.push({ location: loc, kind: "home" });
+      seen.add(loc.id);
+    }
+    return rows.sort(
+      (a, b) =>
+        (a.location.area?.name ?? "").localeCompare(b.location.area?.name ?? "") ||
+        a.location.fullLocationCode.localeCompare(b.location.fullLocationCode, undefined, { numeric: true }),
+    );
+  }, [searchSku]);
 
   async function loadLocations() {
     setLoading(true);
@@ -258,7 +300,7 @@ export function FloorMap() {
       {searchError && <ErrorBlock message={searchError} />}
 
       {searchSku && (
-        <div className={`floorplan-banner${searchAreas.length ? "" : " empty"}`} style={{ flexWrap: "wrap" }}>
+        <div className={`floorplan-banner${searchResultRows.length ? "" : " empty"}`}>
           <span>
             <strong>
               {searchSku.partNumber} - {searchSku.description}
@@ -269,15 +311,45 @@ export function FloorMap() {
               searchHomeLocationIds.size > 0 &&
               ` - no stock currently in backstock, but ${searchHomeLocationIds.size} home slot${searchHomeLocationIds.size > 1 ? "s are" : " is"} outlined in blue below.`}
           </span>
-          {searchAreas.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {searchAreas.map((a) => (
-                <button key={a.key} type="button" onClick={() => jumpToArea(a.key)}>
-                  {a.name} ({a.units})
-                </button>
-              ))}
-            </div>
+          {searchResultRows.length > 0 && (
+            <button type="button" onClick={() => setShowResultsModal(true)}>
+              View {searchResultRows.length} location{searchResultRows.length > 1 ? "s" : ""}
+            </button>
           )}
+        </div>
+      )}
+
+      {showResultsModal && searchSku && (
+        <div className="modal-overlay" onClick={() => setShowResultsModal(false)}>
+          <div className="modal-panel" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2>{searchSku.partNumber}</h2>
+                <p className="subtle">{searchSku.description}</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setShowResultsModal(false)}
+                aria-label="Close"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+            <ul className="modal-result-list">
+              {searchResultRows.map((row) => (
+                <li key={row.location.id}>
+                  <button type="button" className="modal-result-row" onClick={() => jumpToLocation(row.location.id)}>
+                    <span className="modal-result-code">{row.location.fullLocationCode}</span>
+                    <span className="modal-result-area">{row.location.area?.name}</span>
+                    <span className={`modal-result-tag ${row.kind}`}>
+                      {row.kind === "pallet" ? `${row.qty} units` : "Home slot"}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
 
@@ -403,6 +475,9 @@ export function FloorMap() {
                                         ? "home"
                                         : null
                                   }
+                                  registerRef={(el) => {
+                                    locationRefs.current[location.id] = el;
+                                  }}
                                 />
                               ))}
                             </div>
@@ -436,12 +511,14 @@ function LocationTile({
   maxSlotCol,
   bayLocations,
   searchMatch,
+  registerRef,
 }: {
   location: Location;
   maxSlotRow: number;
   maxSlotCol: number;
   bayLocations: Location[];
   searchMatch?: "pallet" | "home" | null;
+  registerRef?: (el: HTMLElement | null) => void;
 }) {
   const open = isLocationOpen(location);
   const dot = statusDotColor(location);
@@ -450,6 +527,7 @@ function LocationTile({
 
   return (
     <article
+      ref={registerRef}
       className={`location-tile ${location.status.toLowerCase().replaceAll("_", "-")}${open ? " open" : ""}${location.isShortenedHeight ? " short" : ""}${searchMatch ? ` search-match-${searchMatch}` : ""}`}
       title={location.isShortenedHeight ? "Shortened height — last-resort slot" : undefined}
     >
