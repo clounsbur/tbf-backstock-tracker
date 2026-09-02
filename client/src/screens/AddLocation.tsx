@@ -108,9 +108,13 @@ export function AddLocation() {
     setLoadingLocations(true);
     setLocationEdits({});
     setLocationFilter("");
+    setResizePreview(null);
     try {
       const { locations } = await api.listAreaLocations(id);
       setEditLocations(locations);
+      // Prefill the resize tool's zone code from this area's existing locations
+      // so staff don't have to retype something already visible on screen.
+      setResizeZone(locations[0]?.zone ?? "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load locations for that area");
     } finally {
@@ -754,6 +758,10 @@ export function AddLocation() {
                 </button>
               )}
             </div>
+
+            {!resizePreview && !resizeZone.trim() && (
+              <p className="subtle">Enter a zone code above, then click Preview.</p>
+            )}
 
             {resizePreview && (
               <p className="subtle">
