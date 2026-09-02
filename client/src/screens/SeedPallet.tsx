@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PackagePlus } from "lucide-react";
-import { api, type Location, type Sku } from "../api/client";
+import { api, type Location, type Sku, type WarehouseArea } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import { ErrorBlock } from "../components/StateBlocks";
+import { ErrorBlock, LoadingBlock } from "../components/StateBlocks";
+import { LocationPicker } from "../components/LocationPicker";
 
 type StoredEntry = {
   at: string;
@@ -24,6 +25,11 @@ export function SeedPallet() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [lookingUpLocation, setLookingUpLocation] = useState(false);
 
+  const [areas, setAreas] = useState<WarehouseArea[]>([]);
+  const [pickerAreaId, setPickerAreaId] = useState("");
+  const [allLocations, setAllLocations] = useState<Location[]>([]);
+  const [loadingPicker, setLoadingPicker] = useState(true);
+
   const [quantity, setQuantity] = useState(1);
   const [palletLicensePlate, setPalletLicensePlate] = useState("");
 
@@ -34,9 +40,30 @@ export function SeedPallet() {
   const codeInputRef = useRef<HTMLInputElement>(null);
   const locationInputRef = useRef<HTMLInputElement>(null);
 
+  async function loadPickerData() {
+    setLoadingPicker(true);
+    try {
+      const [areasResp, locationsResp] = await Promise.all([api.listAreas(), api.listLocations()]);
+      setAreas(areasResp.areas);
+      setAllLocations(locationsResp.locations);
+      setPickerAreaId((current) => current || areasResp.areas[0]?.id || "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load locations");
+    } finally {
+      setLoadingPicker(false);
+    }
+  }
+
   useEffect(() => {
     codeInputRef.current?.focus();
+    void loadPickerData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const pickerLocations = useMemo(
+    () => allLocations.filter((l) => l.areaId === pickerAreaId),
+    [allLocations, pickerAreaId],
+  );
 
   async function handleLookupProduct(event: FormEvent) {
     event.preventDefault();
@@ -52,7 +79,6 @@ export function SeedPallet() {
       }
       setProduct(found);
       if (found.palletsPerFullAllocation) setQuantity(found.palletsPerFullAllocation);
-      locationInputRef.current?.focus();
     } catch (err) {
       setProductError(err instanceof Error ? err.message : "Lookup failed");
     } finally {
@@ -82,6 +108,12 @@ export function SeedPallet() {
     } finally {
       setLookingUpLocation(false);
     }
+  }
+
+  function handlePickLocation(picked: Location) {
+    setLocation(picked);
+    setLocationInput(picked.fullLocationCode);
+    setLocationError(null);
   }
 
   function resetForNextScan() {
@@ -120,6 +152,7 @@ export function SeedPallet() {
         ...prev,
       ].slice(0, 25));
       resetForNextScan();
+      await loadPickerData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not store pallet");
     } finally {
@@ -133,9 +166,9 @@ export function SeedPallet() {
     <section>
       <PageHeader eyebrow="Warehouse Setup" title="Scan & Store Pallet" />
       <p className="subtle" style={{ marginBottom: 12 }}>
-        Scan a pallet's barcode or type its SKU, scan or type the destination location code, confirm
-        the quantity, then store it. The form clears and refocuses after each pallet so you can keep
-        scanning without touching the mouse.
+        Scan a pallet's barcode or type its SKU, then pick the destination location &mdash; tap an
+        open tile below or scan/type its code directly. Confirm the quantity and store. The form
+        clears and refocuses after each pallet so you can keep going without touching the mouse.
       </p>
 
       {error && <ErrorBlock message={error} />}
@@ -165,25 +198,47 @@ export function SeedPallet() {
       </div>
 
       <div className="panel form-panel">
-        <form className="search-bar" onSubmit={handleLookupLocation}>
-          <label style={{ flex: 1 }}>
-            Location code
-            <input
-              ref={locationInputRef}
-              value={locationInput}
-              onChange={(event) => setLocationInput(event.target.value)}
-              placeholder="Scan or type location code, then Enter"
-              autoComplete="off"
-            />
+        <div className="form-grid">
+          <label>
+            Area
+            <select value={pickerAreaId} onChange={(event) => setPickerAreaId(event.target.value)}>
+              {areas.map((area) => (
+                <option key={area.id} value={area.id}>
+                  {area.name} ({area.areaType})
+                </option>
+              ))}
+            </select>
           </label>
-          <button type="submit" disabled={lookingUpLocation || !locationInput.trim()} style={{ alignSelf: "flex-end" }}>
-            {lookingUpLocation ? "Looking up..." : "Look up"}
-          </button>
-        </form>
+
+          <label>
+            Or scan/type a location code
+            <form className="search-bar" style={{ marginBottom: 0 }} onSubmit={handleLookupLocation}>
+              <input
+                ref={locationInputRef}
+                value={locationInput}
+                onChange={(event) => setLocationInput(event.target.value)}
+                placeholder="Scan or type, then Enter"
+                autoComplete="off"
+                style={{ flex: 1 }}
+              />
+              <button type="submit" disabled={lookingUpLocation || !locationInput.trim()}>
+                {lookingUpLocation ? "..." : "Look up"}
+              </button>
+            </form>
+          </label>
+        </div>
+
         {locationError && <ErrorBlock message={locationError} />}
         {location && (
           <div className="state-block success">
             <strong>{location.fullLocationCode}</strong> &mdash; {location.area?.name ?? "unknown area"} &mdash; open
+          </div>
+        )}
+
+        {loadingPicker && <LoadingBlock />}
+        {!loadingPicker && (
+          <div style={{ marginTop: 12 }}>
+            <LocationPicker locations={pickerLocations} selectedId={location?.id} onSelect={handlePickLocation} />
           </div>
         )}
       </div>
