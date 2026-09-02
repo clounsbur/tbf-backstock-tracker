@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { Location } from "../api/client";
 import { locationStatusLabel } from "./StatusBadge";
-import { rackPositionLabel } from "./rackPosition";
+import { floorPositionLabel, rackPositionLabel } from "./rackPosition";
 
 // Same visual language as the Floor Plan drill-in view (grouped by bay, tinted
 // by status) so location selection looks and behaves consistently everywhere
@@ -74,7 +74,9 @@ export function LocationPicker({
               const c = statusColor(location);
               const selectable = isSelectable(location);
               const isSelected = selectedIds.has(location.id);
-              const posLabel = rackPositionLabel(location, bayGroup.maxSlotRow, bayGroup.maxSlotCol);
+              const posLabel =
+                rackPositionLabel(location, bayGroup.maxSlotRow, bayGroup.maxSlotCol) ??
+                floorPositionLabel(location, bayGroup.tiles);
               return (
                 <div
                   key={location.id}

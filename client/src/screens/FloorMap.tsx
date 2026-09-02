@@ -5,7 +5,7 @@ import { PageHeader } from "../components/PageHeader";
 import { RecentMoves } from "../components/RecentMoves";
 import { EmptyBlock, ErrorBlock, LoadingBlock } from "../components/StateBlocks";
 import { locationStatusLabel } from "../components/StatusBadge";
-import { rackPositionLabel } from "../components/rackPosition";
+import { floorPositionLabel, rackPositionLabel } from "../components/rackPosition";
 
 const AREA_TINTS: Record<string, { bg: string; border: string }> = {
   Superior: { bg: "#eef2ff", border: "#8b9cf6" },
@@ -283,6 +283,7 @@ export function FloorMap() {
                                   location={location}
                                   maxSlotRow={bayGroup.maxSlotRow}
                                   maxSlotCol={bayGroup.maxSlotCol}
+                                  bayLocations={bayGroup.locations}
                                 />
                               ))}
                             </div>
@@ -314,15 +315,17 @@ function LocationTile({
   location,
   maxSlotRow,
   maxSlotCol,
+  bayLocations,
 }: {
   location: Location;
   maxSlotRow: number;
   maxSlotCol: number;
+  bayLocations: Location[];
 }) {
   const open = isLocationOpen(location);
   const dot = statusDotColor(location);
   const line = statusLine(location);
-  const posLabel = rackPositionLabel(location, maxSlotRow, maxSlotCol);
+  const posLabel = rackPositionLabel(location, maxSlotRow, maxSlotCol) ?? floorPositionLabel(location, bayLocations);
 
   return (
     <article
@@ -330,7 +333,7 @@ function LocationTile({
       title={location.isShortenedHeight ? "Shortened height — last-resort slot" : undefined}
     >
       <div className="tile-topline">
-        <strong>{posLabel ?? `D${location.depthPosition}`}</strong>
+        <strong>{posLabel}</strong>
         <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {location.isShortenedHeight && <span className="short-flag" aria-label="Shortened height">↧</span>}
           {dot && <span className="status-dot" style={{ background: dot }} aria-hidden="true" />}

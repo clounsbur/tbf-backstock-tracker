@@ -28,3 +28,19 @@ export function rackPositionLabel(location: Location, maxRow: number, maxCol: nu
   if (rowLabel && colLabel) return `${rowLabel}-${colLabel}`;
   return rowLabel ?? colLabel;
 }
+
+// Plain-language position for a floor-stacked location, e.g. "D1 Top" /
+// "D1 Bottom" when a second pallet is stacked on top of the first at that
+// depth, or just "D1" when only one pallet sits there. `bayLocations` is
+// every location in the same bay so the sibling(s) at this depth can be
+// found; the location with the numerically highest `level` is "Top".
+export function floorPositionLabel(location: Location, bayLocations: Location[]): string {
+  const depthLabel = `D${location.depthPosition}`;
+  const atDepth = bayLocations.filter((l) => l.depthPosition === location.depthPosition);
+  if (atDepth.length <= 1) return depthLabel;
+
+  const top = atDepth.reduce((best, l) =>
+    l.level.localeCompare(best.level, undefined, { numeric: true }) > 0 ? l : best,
+  );
+  return `${depthLabel} ${top.id === location.id ? "Top" : "Bottom"}`;
+}

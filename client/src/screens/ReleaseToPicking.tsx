@@ -3,7 +3,7 @@ import { Search, PackageX } from "lucide-react";
 import { api, type Location, type Pallet, type Sku } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { ErrorBlock } from "../components/StateBlocks";
-import { rackPositionLabel } from "../components/rackPosition";
+import { floorPositionLabel, rackPositionLabel } from "../components/rackPosition";
 
 type ReleaseRow = {
   palletId: string;
@@ -30,26 +30,30 @@ export function ReleaseToPicking() {
       .catch(() => undefined);
   }, []);
 
-  // Rack rows/cols per bay so a pallet's plain-language position (e.g.
-  // "Top-L") can be shown instead of its internal pallet license plate --
-  // a picker cares where the pallet physically is, not its generated ID.
-  const bayDims = useMemo(() => {
-    const map = new Map<string, { maxSlotRow: number; maxSlotCol: number }>();
+  // Per-bay location lists so a pallet's plain-language position (e.g.
+  // "Top-L" for a racked bay, "D1 Top" for a floor-stacked depth with a
+  // pallet on top of another) can be shown instead of its internal pallet
+  // license plate -- a picker cares where the pallet physically is, not
+  // its generated ID.
+  const bayLocations = useMemo(() => {
+    const map = new Map<string, Location[]>();
     for (const loc of allLocations) {
       const key = `${loc.areaId}::${loc.bay}`;
-      const dims = map.get(key) ?? { maxSlotRow: 0, maxSlotCol: 0 };
-      if (loc.slotRow != null) dims.maxSlotRow = Math.max(dims.maxSlotRow, loc.slotRow);
-      if (loc.slotCol != null) dims.maxSlotCol = Math.max(dims.maxSlotCol, loc.slotCol);
-      map.set(key, dims);
+      const list = map.get(key) ?? [];
+      list.push(loc);
+      map.set(key, list);
     }
     return map;
   }, [allLocations]);
 
   function positionLabel(location: Location | null | undefined): string {
     if (!location) return "—";
-    const dims = bayDims.get(`${location.areaId}::${location.bay}`);
-    const label = rackPositionLabel(location, dims?.maxSlotRow ?? 0, dims?.maxSlotCol ?? 0);
-    return label ?? `D${location.depthPosition}`;
+    const bay = bayLocations.get(`${location.areaId}::${location.bay}`) ?? [location];
+    const rows = bay.map((l) => l.slotRow).filter((r): r is number => r != null);
+    const cols = bay.map((l) => l.slotCol).filter((c): c is number => c != null);
+    const maxSlotRow = rows.length ? Math.max(...rows) : 0;
+    const maxSlotCol = cols.length ? Math.max(...cols) : 0;
+    return rackPositionLabel(location, maxSlotRow, maxSlotCol) ?? floorPositionLabel(location, bay);
   }
 
   async function handleSearch(event: FormEvent) {
