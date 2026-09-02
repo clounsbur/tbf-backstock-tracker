@@ -44,3 +44,15 @@ export function floorPositionLabel(location: Location, bayLocations: Location[])
   );
   return `${depthLabel} ${top.id === location.id ? "Top" : "Bottom"}`;
 }
+
+// Convenience for callers that only have a flat list of locations (not
+// already grouped by bay), e.g. a SKU search result. Finds the location's
+// bay-mates itself, then applies the rack or floor label as appropriate.
+export function positionLabelForLocation(location: Location, allLocations: Location[]): string {
+  const bayLocations = allLocations.filter((l) => l.areaId === location.areaId && l.bay === location.bay);
+  const rows = bayLocations.map((l) => l.slotRow).filter((r): r is number => r != null);
+  const cols = bayLocations.map((l) => l.slotCol).filter((c): c is number => c != null);
+  const maxSlotRow = rows.length ? Math.max(...rows) : 0;
+  const maxSlotCol = cols.length ? Math.max(...cols) : 0;
+  return rackPositionLabel(location, maxSlotRow, maxSlotCol) ?? floorPositionLabel(location, bayLocations);
+}

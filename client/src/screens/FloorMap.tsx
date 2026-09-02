@@ -1,11 +1,13 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, RefreshCw, Search, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ArrowUp, PackageX, RefreshCw, Search, X } from "lucide-react";
 import { api, type Location, type Sku } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { RecentMoves } from "../components/RecentMoves";
 import { EmptyBlock, ErrorBlock, LoadingBlock } from "../components/StateBlocks";
 import { locationStatusLabel } from "../components/StatusBadge";
-import { floorPositionLabel, rackPositionLabel } from "../components/rackPosition";
+import { floorPositionLabel, positionLabelForLocation, rackPositionLabel } from "../components/rackPosition";
+import { addToReleaseQueue } from "../lib/releaseQueue";
 
 const AREA_TINTS: Record<string, { bg: string; border: string }> = {
   Superior: { bg: "#eef2ff", border: "#8b9cf6" },
@@ -65,6 +67,7 @@ function relativeTime(from: number | null): string {
 }
 
 export function FloorMap() {
+  const navigate = useNavigate();
   const [locations, setLocations] = useState<Location[]>([]);
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -98,6 +101,19 @@ export function FloorMap() {
       el.classList.add("jump-flash");
       setTimeout(() => el.classList.remove("jump-flash"), 1600);
     }, 50);
+  }
+
+  function addToRelease(row: { location: Location; palletId?: string; qty?: number }) {
+    if (!row.palletId || !searchSku) return;
+    addToReleaseQueue({
+      palletId: row.palletId,
+      position: positionLabelForLocation(row.location, locations),
+      sku: searchSku.partNumber,
+      desc: searchSku.description,
+      location: row.location.fullLocationCode,
+    });
+    setShowResultsModal(false);
+    navigate("/release");
   }
 
   async function handleSkuSearch(event: FormEvent) {
@@ -170,11 +186,11 @@ export function FloorMap() {
 
   const searchResultRows = useMemo(() => {
     if (!searchSku) return [];
-    const rows: Array<{ location: Location; kind: "pallet" | "home"; qty?: number }> = [];
+    const rows: Array<{ location: Location; kind: "pallet" | "home"; qty?: number; palletId?: string }> = [];
     const seen = new Set<string>();
     for (const p of searchSku.pallets ?? []) {
       if (p.status === "CONSUMED" || !p.currentLocation) continue;
-      rows.push({ location: p.currentLocation, kind: "pallet", qty: p.quantity });
+      rows.push({ location: p.currentLocation, kind: "pallet", qty: p.quantity, palletId: p.id });
       seen.add(p.currentLocation.id);
     }
     for (const loc of searchSku.homeLocations ?? []) {
@@ -338,14 +354,29 @@ export function FloorMap() {
             </div>
             <ul className="modal-result-list">
               {searchResultRows.map((row) => (
-                <li key={row.location.id}>
-                  <button type="button" className="modal-result-row" onClick={() => jumpToLocation(row.location.id)}>
-                    <span className="modal-result-code">{row.location.fullLocationCode}</span>
-                    <span className="modal-result-area">{row.location.area?.name}</span>
+                <li key={row.location.id} className="modal-result-row">
+                  <button type="button" className="modal-result-main" onClick={() => jumpToLocation(row.location.id)}>
+                    <span>
+                      <span className="modal-result-code">{positionLabelForLocation(row.location, locations)}</span>
+                      <br />
+                      <span className="modal-result-sub">
+                        {row.location.fullLocationCode} &middot; {row.location.area?.name}
+                      </span>
+                    </span>
                     <span className={`modal-result-tag ${row.kind}`}>
                       {row.kind === "pallet" ? `${row.qty} units` : "Home slot"}
                     </span>
                   </button>
+                  {row.kind === "pallet" && (
+                    <button
+                      type="button"
+                      className="modal-result-release"
+                      onClick={() => addToRelease(row)}
+                      title="Add this pallet to the Release to Picking list"
+                    >
+                      <PackageX size={14} aria-hidden="true" /> Release
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

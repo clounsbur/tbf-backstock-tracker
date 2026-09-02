@@ -4,14 +4,9 @@ import { api, type Location, type Pallet, type Sku } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { ErrorBlock } from "../components/StateBlocks";
 import { floorPositionLabel, rackPositionLabel } from "../components/rackPosition";
+import { clearReleaseQueue, readReleaseQueue, type QueuedRelease } from "../lib/releaseQueue";
 
-type ReleaseRow = {
-  palletId: string;
-  position: string;
-  sku: string;
-  desc: string;
-  location: string;
-};
+type ReleaseRow = QueuedRelease;
 
 export function ReleaseToPicking() {
   const [query, setQuery] = useState("");
@@ -28,6 +23,19 @@ export function ReleaseToPicking() {
       .listLocations()
       .then((resp) => setAllLocations(resp.locations))
       .catch(() => undefined);
+  }, []);
+
+  // Floor Map's SKU search can hand off a pallet here via a shared
+  // localStorage queue (there's no other state shared between the two
+  // screens). Drain it into the list once, on arrival.
+  useEffect(() => {
+    const queued = readReleaseQueue();
+    if (!queued.length) return;
+    setList((prev) => {
+      const existingIds = new Set(prev.map((r) => r.palletId));
+      return [...prev, ...queued.filter((q) => !existingIds.has(q.palletId))];
+    });
+    clearReleaseQueue();
   }, []);
 
   // Per-bay location lists so a pallet's plain-language position (e.g.

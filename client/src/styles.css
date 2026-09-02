@@ -763,29 +763,38 @@ h3 {
 
 .modal-result-row {
   align-items: center;
-  background: transparent;
   border-radius: 8px;
-  color: #1f2933;
   display: flex;
-  font-weight: 400;
-  gap: 10px;
-  justify-content: space-between;
-  padding: 10px 12px;
-  text-align: left;
-  width: 100%;
+  gap: 6px;
+  padding: 4px;
 }
 
 .modal-result-row:hover {
   background: #f1f5f9;
 }
 
+.modal-result-main {
+  align-items: center;
+  background: transparent;
+  color: #1f2933;
+  display: flex;
+  flex: 1;
+  font-weight: 400;
+  gap: 10px;
+  justify-content: space-between;
+  min-height: 0;
+  padding: 6px 8px;
+  text-align: left;
+}
+
 .modal-result-code {
   font-weight: 700;
 }
 
-.modal-result-area {
+.modal-result-sub {
   color: #667085;
   flex: 1;
+  font-size: 0.85rem;
 }
 
 .modal-result-tag {
@@ -804,6 +813,19 @@ h3 {
 .modal-result-tag.home {
   background: #dbeafe;
   color: #1e40af;
+}
+
+.modal-result-release {
+  background: transparent;
+  color: #1769aa;
+  font-size: 0.82rem;
+  min-height: 0;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.modal-result-release:hover {
+  background: #e8eef5;
 }
 
 .tile-topline {
