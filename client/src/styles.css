@@ -330,6 +330,10 @@ h3 {
   color: #fff;
 }
 
+.area-jump-pill.active {
+  border-width: 2px;
+}
+
 
 .area-jump-dot {
   border-radius: 50%;
@@ -613,6 +617,9 @@ h3 {
   border: 1px solid #dce3ea;
   border-radius: 8px;
   padding: 14px;
+  /* The area-jump pill bar is sticky at the top of the scroller, so without
+     this a jump-to-area scroll lands the section title right behind it. */
+  scroll-margin-top: 70px;
 }
 
 .area-map-header,

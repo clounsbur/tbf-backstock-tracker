@@ -83,9 +83,11 @@ export function FloorMap() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [showResultsModal, setShowResultsModal] = useState(false);
+  const [activeAreaKey, setActiveAreaKey] = useState<string | null>(null);
 
   function jumpToArea(key: string) {
     areaRefs.current[key]?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveAreaKey(key);
   }
 
   function jumpToLocation(locationId: string) {
@@ -428,24 +430,23 @@ export function FloorMap() {
 
       {!loading && !error && groupedLocations.length > 1 && (
         <nav className="area-jump" aria-label="Jump to area">
-          {groupedLocations.map((areaGroup) => (
-            <button
-              key={areaGroup.key}
-              type="button"
-              className="area-jump-pill"
-              onClick={() => jumpToArea(areaGroup.key)}
-            >
-              {AREA_TINTS[areaGroup.name] && (
-                <span
-                  className="area-jump-dot"
-                  style={{ background: AREA_TINTS[areaGroup.name].border }}
-                  aria-hidden="true"
-                />
-              )}
-              {areaGroup.name}
-              <span className="area-jump-count">{areaGroup.count}</span>
-            </button>
-          ))}
+          {groupedLocations.map((areaGroup) => {
+            const tint = AREA_TINTS[areaGroup.name];
+            const isActive = areaGroup.key === activeAreaKey;
+            return (
+              <button
+                key={areaGroup.key}
+                type="button"
+                className={`area-jump-pill${isActive ? " active" : ""}`}
+                style={isActive && tint ? { background: tint.bg, borderColor: tint.border } : undefined}
+                onClick={() => jumpToArea(areaGroup.key)}
+              >
+                {tint && <span className="area-jump-dot" style={{ background: tint.border }} aria-hidden="true" />}
+                {areaGroup.name}
+                <span className="area-jump-count">{areaGroup.count}</span>
+              </button>
+            );
+          })}
         </nav>
       )}
 
