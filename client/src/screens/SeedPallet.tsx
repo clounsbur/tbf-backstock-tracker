@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { PackagePlus } from "lucide-react";
 import { api, type Location, type Sku, type WarehouseArea } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
@@ -14,6 +14,21 @@ type StoredEntry = {
   palletLicensePlate: string;
   lotNumber: string;
 };
+
+const LAST_LOT_STORAGE_KEY = "seedPallet.lastLotNumber";
+
+function currentYearMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function readLastLotNumber(): string {
+  try {
+    return localStorage.getItem(LAST_LOT_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
 
 export function SeedPallet() {
   const [codeInput, setCodeInput] = useState("");
@@ -34,13 +49,32 @@ export function SeedPallet() {
   const [quantity, setQuantity] = useState(1);
   const [palletLicensePlate, setPalletLicensePlate] = useState("");
   const [lotNumber, setLotNumber] = useState("");
+  const [lastLotNumber, setLastLotNumber] = useState(readLastLotNumber);
 
   const [storing, setStoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<StoredEntry[]>([]);
 
+  // Scan-style fields default to inputMode="none" so tapping them to focus
+  // for a scanner doesn't pop the on-screen keyboard; a double-tap switches
+  // to the real inputMode and re-focuses to bring the keyboard up on demand.
+  const [codeKeyboardOn, setCodeKeyboardOn] = useState(false);
+  const [locationKeyboardOn, setLocationKeyboardOn] = useState(false);
+  const [lotKeyboardOn, setLotKeyboardOn] = useState(false);
+
   const codeInputRef = useRef<HTMLInputElement>(null);
   const locationInputRef = useRef<HTMLInputElement>(null);
+  const lotInputRef = useRef<HTMLInputElement>(null);
+
+  const lotSuggestion = lastLotNumber || currentYearMonth();
+
+  function wakeKeyboard(ref: RefObject<HTMLInputElement>, setOn: (on: boolean) => void) {
+    setOn(true);
+    const el = ref.current;
+    if (!el) return;
+    el.blur();
+    setTimeout(() => el.focus(), 30);
+  }
 
   async function loadPickerData() {
     setLoadingPicker(true);
@@ -128,6 +162,9 @@ export function SeedPallet() {
     setQuantity(1);
     setPalletLicensePlate("");
     setLotNumber("");
+    setCodeKeyboardOn(false);
+    setLocationKeyboardOn(false);
+    setLotKeyboardOn(false);
     codeInputRef.current?.focus();
   }
 
@@ -156,6 +193,14 @@ export function SeedPallet() {
         },
         ...prev,
       ].slice(0, 25));
+      if (lotNumber.trim()) {
+        setLastLotNumber(lotNumber.trim());
+        try {
+          localStorage.setItem(LAST_LOT_STORAGE_KEY, lotNumber.trim());
+        } catch {
+          /* best-effort */
+        }
+      }
       resetForNextScan();
       await loadPickerData();
     } catch (err) {
@@ -189,6 +234,9 @@ export function SeedPallet() {
               onChange={(event) => setCodeInput(event.target.value)}
               placeholder="Scan or type item code / barcode, then Enter"
               autoComplete="off"
+              inputMode={codeKeyboardOn ? "text" : "none"}
+              onDoubleClick={() => wakeKeyboard(codeInputRef, setCodeKeyboardOn)}
+              title="Double-tap to bring up the keyboard"
             />
           </label>
           <button type="submit" disabled={lookingUpProduct || !codeInput.trim()} style={{ alignSelf: "flex-end" }}>
@@ -226,6 +274,9 @@ export function SeedPallet() {
                 placeholder="Scan or type, then Enter"
                 autoComplete="off"
                 style={{ flex: 1 }}
+                inputMode={locationKeyboardOn ? "text" : "none"}
+                onDoubleClick={() => wakeKeyboard(locationInputRef, setLocationKeyboardOn)}
+                title="Double-tap to bring up the keyboard"
               />
               <button type="submit" disabled={lookingUpLocation || !locationInput.trim()}>
                 {lookingUpLocation ? "..." : "Look up"}
@@ -272,11 +323,21 @@ export function SeedPallet() {
 
           <label>
             Lot number (optional)
-            <input
-              value={lotNumber}
-              onChange={(event) => setLotNumber(event.target.value)}
-              placeholder="Scan or type this pallet's lot/batch number"
-            />
+            <div className="button-row" style={{ marginTop: 0 }}>
+              <input
+                ref={lotInputRef}
+                value={lotNumber}
+                onChange={(event) => setLotNumber(event.target.value)}
+                placeholder={lotSuggestion}
+                inputMode={lotKeyboardOn ? "numeric" : "none"}
+                onDoubleClick={() => wakeKeyboard(lotInputRef, setLotKeyboardOn)}
+                title="Double-tap to bring up the keyboard"
+                style={{ flex: 1 }}
+              />
+              <button type="button" className="secondary-button" onClick={() => setLotNumber(lotSuggestion)}>
+                Use {lotSuggestion}
+              </button>
+            </div>
           </label>
         </div>
 
