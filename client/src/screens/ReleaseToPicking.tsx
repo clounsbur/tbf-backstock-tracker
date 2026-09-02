@@ -1,12 +1,13 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Search, PackageX } from "lucide-react";
-import { api, type Pallet, type Sku } from "../api/client";
+import { api, type Location, type Pallet, type Sku } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { ErrorBlock } from "../components/StateBlocks";
+import { rackPositionLabel } from "../components/rackPosition";
 
 type ReleaseRow = {
   palletId: string;
-  lp: string;
+  position: string;
   sku: string;
   desc: string;
   location: string;
@@ -20,6 +21,36 @@ export function ReleaseToPicking() {
   const [list, setList] = useState<ReleaseRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [allLocations, setAllLocations] = useState<Location[]>([]);
+
+  useEffect(() => {
+    api
+      .listLocations()
+      .then((resp) => setAllLocations(resp.locations))
+      .catch(() => undefined);
+  }, []);
+
+  // Rack rows/cols per bay so a pallet's plain-language position (e.g.
+  // "Top-L") can be shown instead of its internal pallet license plate --
+  // a picker cares where the pallet physically is, not its generated ID.
+  const bayDims = useMemo(() => {
+    const map = new Map<string, { maxSlotRow: number; maxSlotCol: number }>();
+    for (const loc of allLocations) {
+      const key = `${loc.areaId}::${loc.bay}`;
+      const dims = map.get(key) ?? { maxSlotRow: 0, maxSlotCol: 0 };
+      if (loc.slotRow != null) dims.maxSlotRow = Math.max(dims.maxSlotRow, loc.slotRow);
+      if (loc.slotCol != null) dims.maxSlotCol = Math.max(dims.maxSlotCol, loc.slotCol);
+      map.set(key, dims);
+    }
+    return map;
+  }, [allLocations]);
+
+  function positionLabel(location: Location | null | undefined): string {
+    if (!location) return "—";
+    const dims = bayDims.get(`${location.areaId}::${location.bay}`);
+    const label = rackPositionLabel(location, dims?.maxSlotRow ?? 0, dims?.maxSlotCol ?? 0);
+    return label ?? `D${location.depthPosition}`;
+  }
 
   async function handleSearch(event: FormEvent) {
     event.preventDefault();
@@ -55,7 +86,7 @@ export function ReleaseToPicking() {
       ...rows,
       {
         palletId: p.id,
-        lp: p.palletLicensePlate,
+        position: positionLabel(p.currentLocation),
         sku: sku.partNumber,
         desc: sku.description,
         location: p.currentLocation?.fullLocationCode ?? "—",
@@ -133,7 +164,7 @@ export function ReleaseToPicking() {
               {results.pallets.map((p) => (
                 <div className="release-found-row" key={p.id}>
                   <span>
-                    <strong>{p.palletLicensePlate}</strong>
+                    <strong>{positionLabel(p.currentLocation)}</strong>
                     <span className="subtle" style={{ display: "inline", marginLeft: 8 }}>
                       {p.currentLocation?.fullLocationCode}
                     </span>
@@ -173,7 +204,7 @@ export function ReleaseToPicking() {
             {list.map((r) => (
               <div className="release-list-row" key={r.palletId}>
                 <span>
-                  <strong>{r.lp}</strong> · {r.sku} <span className="subtle" style={{ display: "inline" }}>{r.desc}</span>
+                  <strong>{r.position}</strong> · {r.sku} <span className="subtle" style={{ display: "inline" }}>{r.desc}</span>
                 </span>
                 <span className="release-loc">{r.location}</span>
                 <button type="button" className="release-rm" aria-label="Remove" onClick={() => removeRow(r.palletId)}>
