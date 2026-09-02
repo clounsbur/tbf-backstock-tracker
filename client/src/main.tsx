@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
-import { Boxes, ClipboardList, LayoutDashboard, Map, MapPin, MoveRight, PackageX, PackagePlus, ScanLine } from "lucide-react";
+import { ClipboardList, LayoutDashboard, Map, MapPin, MoveRight, PackageX, PackagePlus, ScanLine } from "lucide-react";
 import { AddLocation } from "./screens/AddLocation";
 import { FloorMap } from "./screens/FloorMap";
 import { FloorPlan } from "./screens/FloorPlan";
@@ -18,7 +18,7 @@ function App() {
       <div className="app-shell">
         <aside className="sidebar">
           <div className="brand">
-            <Boxes size={24} aria-hidden="true" />
+            <img src="/bear-factory-logo.png" alt="The Bear Factory" className="brand-logo" />
             <div>
               <strong>TBF Backstock</strong>
               <span>Warehouse MVP</span>

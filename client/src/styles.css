@@ -128,6 +128,14 @@ h3 {
   margin-bottom: 28px;
 }
 
+.brand-logo {
+  background: #fff;
+  border-radius: 6px;
+  height: 40px;
+  padding: 4px 6px;
+  width: auto;
+}
+
 .brand span {
   color: #b9c5d4;
   display: block;
