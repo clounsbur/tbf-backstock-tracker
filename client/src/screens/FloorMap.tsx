@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, RefreshCw } from "lucide-react";
-import { api, type Location } from "../api/client";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, RefreshCw, Search } from "lucide-react";
+import { api, type Location, type Sku } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { RecentMoves } from "../components/RecentMoves";
 import { EmptyBlock, ErrorBlock, LoadingBlock } from "../components/StateBlocks";
@@ -74,9 +74,78 @@ export function FloorMap() {
   const [, forceTick] = useState(0);
   const areaRefs = useRef<Record<string, HTMLElement | null>>({});
 
+  const [skuQuery, setSkuQuery] = useState("");
+  const [searchSku, setSearchSku] = useState<Sku | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
   function jumpToArea(key: string) {
     areaRefs.current[key]?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+
+  async function handleSkuSearch(event: FormEvent) {
+    event.preventDefault();
+    const term = skuQuery.trim();
+    if (!term) return;
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const response = await api.searchSkus(term);
+      const sku =
+        response.skus.find((candidate) => candidate.partNumber.toLowerCase() === term.toLowerCase()) ??
+        response.skus[0] ??
+        null;
+      if (!sku) {
+        setSearchSku(null);
+        setSearchError(`No SKU found for "${term}".`);
+        return;
+      }
+      setSearchSku(sku);
+      // A search should always be able to show its results on the map, even
+      // if the current filters would otherwise hide the matching locations.
+      setQuickFilter("ALL");
+      setStatusFilter("ALL");
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : "Search failed");
+      setSearchSku(null);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function clearSkuSearch() {
+    setSkuQuery("");
+    setSearchSku(null);
+    setSearchError(null);
+  }
+
+  const searchHomeLocationIds = useMemo(
+    () => new Set((searchSku?.homeLocations ?? []).map((l) => l.id)),
+    [searchSku],
+  );
+  const searchPalletLocationIds = useMemo(
+    () =>
+      new Set(
+        (searchSku?.pallets ?? [])
+          .filter((p) => p.status !== "CONSUMED" && p.currentLocation)
+          .map((p) => p.currentLocation!.id),
+      ),
+    [searchSku],
+  );
+  const searchAreas = useMemo(() => {
+    if (!searchSku) return [];
+    const byArea = new Map<string, { key: string; name: string; units: number }>();
+    for (const p of searchSku.pallets ?? []) {
+      if (p.status === "CONSUMED" || !p.currentLocation) continue;
+      const key = p.currentLocation.areaId;
+      const name = p.currentLocation.area?.name ?? "Unknown area";
+      const entry = byArea.get(key) ?? { key, name, units: 0 };
+      entry.units += p.quantity;
+      byArea.set(key, entry);
+    }
+    return Array.from(byArea.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [searchSku]);
+  const searchTotalUnits = useMemo(() => searchAreas.reduce((sum, a) => sum + a.units, 0), [searchAreas]);
 
   async function loadLocations() {
     setLoading(true);
@@ -168,6 +237,49 @@ export function FloorMap() {
   return (
     <section>
       <PageHeader eyebrow="Floor Map" title="Live Location Status" />
+
+      <form className="search-bar" onSubmit={handleSkuSearch}>
+        <input
+          value={skuQuery}
+          onChange={(event) => setSkuQuery(event.target.value)}
+          placeholder="Search SKU, part number, or description to find it on the map"
+        />
+        <button type="submit" disabled={searching}>
+          <Search size={18} aria-hidden="true" />
+          {searching ? "Searching..." : "Search"}
+        </button>
+        {(searchSku || searchError) && (
+          <button type="button" className="secondary-button" onClick={clearSkuSearch}>
+            Clear
+          </button>
+        )}
+      </form>
+
+      {searchError && <ErrorBlock message={searchError} />}
+
+      {searchSku && (
+        <div className={`floorplan-banner${searchAreas.length ? "" : " empty"}`} style={{ flexWrap: "wrap" }}>
+          <span>
+            <strong>
+              {searchSku.partNumber} - {searchSku.description}
+            </strong>
+            {searchAreas.length > 0 && <> : {searchTotalUnits} units highlighted below</>}
+            {searchAreas.length === 0 && searchHomeLocationIds.size === 0 && " - no stock and no home slots assigned."}
+            {searchAreas.length === 0 &&
+              searchHomeLocationIds.size > 0 &&
+              ` - no stock currently in backstock, but ${searchHomeLocationIds.size} home slot${searchHomeLocationIds.size > 1 ? "s are" : " is"} outlined in blue below.`}
+          </span>
+          {searchAreas.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {searchAreas.map((a) => (
+                <button key={a.key} type="button" onClick={() => jumpToArea(a.key)}>
+                  {a.name} ({a.units})
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="metric-row">
         <Metric label="Locations" value={counts.total} />
@@ -284,6 +396,13 @@ export function FloorMap() {
                                   maxSlotRow={bayGroup.maxSlotRow}
                                   maxSlotCol={bayGroup.maxSlotCol}
                                   bayLocations={bayGroup.locations}
+                                  searchMatch={
+                                    searchPalletLocationIds.has(location.id)
+                                      ? "pallet"
+                                      : searchHomeLocationIds.has(location.id)
+                                        ? "home"
+                                        : null
+                                  }
                                 />
                               ))}
                             </div>
@@ -316,11 +435,13 @@ function LocationTile({
   maxSlotRow,
   maxSlotCol,
   bayLocations,
+  searchMatch,
 }: {
   location: Location;
   maxSlotRow: number;
   maxSlotCol: number;
   bayLocations: Location[];
+  searchMatch?: "pallet" | "home" | null;
 }) {
   const open = isLocationOpen(location);
   const dot = statusDotColor(location);
@@ -329,7 +450,7 @@ function LocationTile({
 
   return (
     <article
-      className={`location-tile ${location.status.toLowerCase().replaceAll("_", "-")}${open ? " open" : ""}${location.isShortenedHeight ? " short" : ""}`}
+      className={`location-tile ${location.status.toLowerCase().replaceAll("_", "-")}${open ? " open" : ""}${location.isShortenedHeight ? " short" : ""}${searchMatch ? ` search-match-${searchMatch}` : ""}`}
       title={location.isShortenedHeight ? "Shortened height — last-resort slot" : undefined}
     >
       <div className="tile-topline">

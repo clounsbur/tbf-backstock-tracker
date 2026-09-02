@@ -699,6 +699,14 @@ h3 {
   border: 1px dashed #c9d2dc;
 }
 
+.location-tile.search-match-pallet {
+  box-shadow: 0 0 0 3px #fbbf24;
+}
+
+.location-tile.search-match-home {
+  box-shadow: 0 0 0 3px #2563eb;
+}
+
 .tile-topline {
   align-items: center;
   display: flex;
