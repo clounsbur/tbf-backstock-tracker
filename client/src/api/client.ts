@@ -1308,7 +1308,8 @@ export const api = {
   async resizePermanentLocations(input: {
     areaId: string;
     zone: string;
-    level?: string;
+    levelStart?: number;
+    levelEnd?: number;
     aisleStart: number;
     aisleEnd: number;
     bayStart: number;
@@ -1322,7 +1323,8 @@ export const api = {
       input: {
         area_id: input.areaId,
         zone: input.zone,
-        level: input.level ?? "1",
+        level_start: input.levelStart ?? 1,
+        level_end: input.levelEnd ?? input.levelStart ?? 1,
         aisle_start: input.aisleStart,
         aisle_end: input.aisleEnd,
         bay_start: input.bayStart,

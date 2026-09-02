@@ -62,9 +62,10 @@ export function AddLocation() {
   const [savingLocationId, setSavingLocationId] = useState<string | null>(null);
   const [locationFilter, setLocationFilter] = useState("");
 
-  // -- resize an area's permanent-location grid (add/remove aisle/bay/depth range) --
+  // -- resize an area's permanent-location grid (add/remove aisle/bay/level/depth range) --
   const [resizeZone, setResizeZone] = useState("");
-  const [resizeLevel, setResizeLevel] = useState("1");
+  const [resizeLevelStart, setResizeLevelStart] = useState(1);
+  const [resizeLevelEnd, setResizeLevelEnd] = useState(1);
   const [resizeAisleStart, setResizeAisleStart] = useState(1);
   const [resizeAisleEnd, setResizeAisleEnd] = useState(1);
   const [resizeBayStart, setResizeBayStart] = useState(1);
@@ -207,6 +208,7 @@ export function AddLocation() {
       Boolean(resizeZone.trim()) &&
       resizeAisleStart <= resizeAisleEnd &&
       resizeBayStart <= resizeBayEnd &&
+      resizeLevelStart <= resizeLevelEnd &&
       resizeDepthStart <= resizeDepthEnd
     );
   }
@@ -220,7 +222,8 @@ export function AddLocation() {
       const result = await api.resizePermanentLocations({
         areaId: editAreaId,
         zone: resizeZone.trim(),
-        level: resizeLevel.trim() || "1",
+        levelStart: resizeLevelStart,
+        levelEnd: resizeLevelEnd,
         aisleStart: resizeAisleStart,
         aisleEnd: resizeAisleEnd,
         bayStart: resizeBayStart,
@@ -246,7 +249,8 @@ export function AddLocation() {
       const result = await api.resizePermanentLocations({
         areaId: editAreaId,
         zone: resizeZone.trim(),
-        level: resizeLevel.trim() || "1",
+        levelStart: resizeLevelStart,
+        levelEnd: resizeLevelEnd,
         aisleStart: resizeAisleStart,
         aisleEnd: resizeAisleEnd,
         bayStart: resizeBayStart,
@@ -657,9 +661,11 @@ export function AddLocation() {
           <div className="panel form-panel">
             <h2>Resize permanent locations</h2>
             <p className="subtle">
-              Add or remove whole ranges of aisles, bays, or depth positions for the area selected
-              above ({areas.find((a) => a.id === editAreaId)?.name ?? "none"}). Only permanent
-              (non-overflow) locations are affected, and nothing occupied is ever removed.
+              Add or remove every location in a block of aisles &times; bays &times; levels &times; depth
+              positions for {areas.find((a) => a.id === editAreaId)?.name ?? "the selected area"}. Each
+              range below is inclusive on both ends (e.g. aisle 1 to 3 covers aisles 1, 2, and 3) &mdash;
+              set start and end to the same number to target just one. Only permanent (non-overflow)
+              locations are affected, and nothing occupied is ever removed.
             </p>
 
             <div className="form-grid">
@@ -683,8 +689,22 @@ export function AddLocation() {
               </label>
 
               <label>
-                Level
-                <input value={resizeLevel} onChange={(event) => setResizeLevel(event.target.value)} placeholder="1" />
+                Level range
+                <div className="button-row" style={{ marginTop: 0 }}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={resizeLevelStart}
+                    onChange={(event) => setResizeLevelStart(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                  <span className="subtle" style={{ alignSelf: "center" }}>to</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={resizeLevelEnd}
+                    onChange={(event) => setResizeLevelEnd(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                </div>
               </label>
 
               <label>
