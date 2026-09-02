@@ -62,6 +62,19 @@ export function AddLocation() {
   const [savingLocationId, setSavingLocationId] = useState<string | null>(null);
   const [locationFilter, setLocationFilter] = useState("");
 
+  // -- resize an area's permanent-location grid (add/remove aisle/bay/depth range) --
+  const [resizeZone, setResizeZone] = useState("");
+  const [resizeLevel, setResizeLevel] = useState("1");
+  const [resizeAisleStart, setResizeAisleStart] = useState(1);
+  const [resizeAisleEnd, setResizeAisleEnd] = useState(1);
+  const [resizeBayStart, setResizeBayStart] = useState(1);
+  const [resizeBayEnd, setResizeBayEnd] = useState(1);
+  const [resizeDepthStart, setResizeDepthStart] = useState(1);
+  const [resizeDepthEnd, setResizeDepthEnd] = useState(1);
+  const [resizeAction, setResizeAction] = useState<"ADD" | "REMOVE">("ADD");
+  const [resizePreview, setResizePreview] = useState<Awaited<ReturnType<typeof api.resizePermanentLocations>> | null>(null);
+  const [resizing, setResizing] = useState(false);
+
   async function loadAreas() {
     setLoading(true);
     setLoadError(null);
@@ -180,6 +193,75 @@ export function AddLocation() {
       setError(err instanceof Error ? err.message : "Could not save area");
     } finally {
       setSavingArea(false);
+    }
+  }
+
+  function resizeRangeValid(): boolean {
+    return (
+      Boolean(editAreaId) &&
+      Boolean(resizeZone.trim()) &&
+      resizeAisleStart <= resizeAisleEnd &&
+      resizeBayStart <= resizeBayEnd &&
+      resizeDepthStart <= resizeDepthEnd
+    );
+  }
+
+  async function handlePreviewResize() {
+    if (!resizeRangeValid()) return;
+    setResizing(true);
+    setError(null);
+    setResizePreview(null);
+    try {
+      const result = await api.resizePermanentLocations({
+        areaId: editAreaId,
+        zone: resizeZone.trim(),
+        level: resizeLevel.trim() || "1",
+        aisleStart: resizeAisleStart,
+        aisleEnd: resizeAisleEnd,
+        bayStart: resizeBayStart,
+        bayEnd: resizeBayEnd,
+        depthStart: resizeDepthStart,
+        depthEnd: resizeDepthEnd,
+        action: resizeAction,
+        dryRun: true,
+      });
+      setResizePreview(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not preview resize");
+    } finally {
+      setResizing(false);
+    }
+  }
+
+  async function handleConfirmResize() {
+    if (!resizeRangeValid()) return;
+    setResizing(true);
+    setError(null);
+    try {
+      const result = await api.resizePermanentLocations({
+        areaId: editAreaId,
+        zone: resizeZone.trim(),
+        level: resizeLevel.trim() || "1",
+        aisleStart: resizeAisleStart,
+        aisleEnd: resizeAisleEnd,
+        bayStart: resizeBayStart,
+        bayEnd: resizeBayEnd,
+        depthStart: resizeDepthStart,
+        depthEnd: resizeDepthEnd,
+        action: resizeAction,
+        dryRun: false,
+      });
+      setSuccess(
+        resizeAction === "ADD"
+          ? `Added ${result.added} location(s).`
+          : `Removed ${result.removed} empty location(s).${result.skippedOccupied ? ` Skipped ${result.skippedOccupied} occupied.` : ""}`,
+      );
+      setResizePreview(null);
+      await loadAreaLocations(editAreaId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not apply resize");
+    } finally {
+      setResizing(false);
     }
   }
 
@@ -555,6 +637,133 @@ export function AddLocation() {
             {!loadingLocations && editLocations.length === 0 && (
               <p className="subtle" style={{ marginTop: 12 }}>
                 No locations in this area yet.
+              </p>
+            )}
+          </div>
+
+          <div className="panel form-panel">
+            <h2>Resize permanent locations</h2>
+            <p className="subtle">
+              Add or remove whole ranges of aisles, bays, or depth positions for the area selected
+              above ({areas.find((a) => a.id === editAreaId)?.name ?? "none"}). Only permanent
+              (non-overflow) locations are affected, and nothing occupied is ever removed.
+            </p>
+
+            <div className="form-grid">
+              <label>
+                Zone code
+                <input value={resizeZone} onChange={(event) => setResizeZone(event.target.value)} placeholder="e.g. SUP" />
+              </label>
+
+              <label>
+                Level
+                <input value={resizeLevel} onChange={(event) => setResizeLevel(event.target.value)} placeholder="1" />
+              </label>
+
+              <label>
+                Aisle range
+                <div className="button-row" style={{ marginTop: 0 }}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={resizeAisleStart}
+                    onChange={(event) => setResizeAisleStart(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                  <span className="subtle" style={{ alignSelf: "center" }}>to</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={resizeAisleEnd}
+                    onChange={(event) => setResizeAisleEnd(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                </div>
+              </label>
+
+              <label>
+                Bay range
+                <div className="button-row" style={{ marginTop: 0 }}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={resizeBayStart}
+                    onChange={(event) => setResizeBayStart(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                  <span className="subtle" style={{ alignSelf: "center" }}>to</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={resizeBayEnd}
+                    onChange={(event) => setResizeBayEnd(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                </div>
+              </label>
+
+              <label>
+                Depth range
+                <div className="button-row" style={{ marginTop: 0 }}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={resizeDepthStart}
+                    onChange={(event) => setResizeDepthStart(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                  <span className="subtle" style={{ alignSelf: "center" }}>to</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={resizeDepthEnd}
+                    onChange={(event) => setResizeDepthEnd(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                </div>
+              </label>
+
+              <label>
+                Action
+                <select
+                  value={resizeAction}
+                  onChange={(event) => {
+                    setResizeAction(event.target.value as "ADD" | "REMOVE");
+                    setResizePreview(null);
+                  }}
+                >
+                  <option value="ADD">Add missing locations in this range</option>
+                  <option value="REMOVE">Remove empty locations in this range</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="button-row">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={resizing || !resizeRangeValid()}
+                onClick={handlePreviewResize}
+              >
+                {resizing ? "Checking..." : "Preview"}
+              </button>
+
+              {resizePreview && resizeAction === "ADD" && (
+                <button type="button" disabled={resizing || resizePreview.wouldAdd === 0} onClick={handleConfirmResize}>
+                  {resizing ? "Adding..." : `Add ${resizePreview.wouldAdd} location(s)`}
+                </button>
+              )}
+
+              {resizePreview && resizeAction === "REMOVE" && (
+                <button type="button" disabled={resizing || resizePreview.wouldRemove === 0} onClick={handleConfirmResize}>
+                  {resizing ? "Removing..." : `Remove ${resizePreview.wouldRemove} empty location(s)`}
+                </button>
+              )}
+            </div>
+
+            {resizePreview && (
+              <p className="subtle">
+                {resizeAction === "ADD"
+                  ? `${resizePreview.wouldAdd} location(s) would be added.`
+                  : `${resizePreview.wouldRemove} empty location(s) would be removed.${
+                      resizePreview.skippedOccupied
+                        ? ` ${resizePreview.skippedOccupied} location(s) in range are occupied and will be left alone.`
+                        : ""
+                    }`}
               </p>
             )}
           </div>

@@ -1304,4 +1304,45 @@ export const api = {
     throwIfError(error);
     return mapLocation(data);
   },
+
+  async resizePermanentLocations(input: {
+    areaId: string;
+    zone: string;
+    level?: string;
+    aisleStart: number;
+    aisleEnd: number;
+    bayStart: number;
+    bayEnd: number;
+    depthStart?: number;
+    depthEnd?: number;
+    action: "ADD" | "REMOVE";
+    dryRun: boolean;
+  }) {
+    const { data, error } = await supabase.rpc("resize_permanent_locations", {
+      input: {
+        area_id: input.areaId,
+        zone: input.zone,
+        level: input.level ?? "1",
+        aisle_start: input.aisleStart,
+        aisle_end: input.aisleEnd,
+        bay_start: input.bayStart,
+        bay_end: input.bayEnd,
+        depth_start: input.depthStart ?? 1,
+        depth_end: input.depthEnd ?? 1,
+        action: input.action,
+        dry_run: input.dryRun,
+      },
+    });
+
+    throwIfError(error);
+    return data as {
+      action: "ADD" | "REMOVE";
+      dryRun: boolean;
+      wouldAdd: number;
+      added: number;
+      wouldRemove: number;
+      removed: number;
+      skippedOccupied: number;
+    };
+  },
 };
