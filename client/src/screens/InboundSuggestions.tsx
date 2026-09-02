@@ -77,7 +77,7 @@ export function InboundSuggestions() {
         <div className="result-header">
           <h2>{sku.partNumber}</h2>
           <p>{sku.description}</p>
-          <StatusBadge value={sku.velocityClass} />
+          {sku.velocityClass && <StatusBadge value={sku.velocityClass} />}
         </div>
       )}
 
