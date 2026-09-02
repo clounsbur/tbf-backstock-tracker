@@ -3,7 +3,8 @@ import type { Location } from "../api/client";
 
 // Same visual language as the Floor Plan drill-in view (grouped by bay, tinted
 // by status) so location selection looks and behaves consistently everywhere
-// in the app. Only locations that aren't occupied/blocked are tappable.
+// in the app. Only locations that aren't occupied/blocked are tappable, and
+// tapping toggles that location in/out of the (possibly multi-) selection.
 
 function statusColor(location: Location): { border: string; bg: string } {
   switch (location.status) {
@@ -27,12 +28,12 @@ function isSelectable(location: Location): boolean {
 
 export function LocationPicker({
   locations,
-  selectedId,
-  onSelect,
+  selectedIds,
+  onToggle,
 }: {
   locations: Location[];
-  selectedId?: string | null;
-  onSelect: (location: Location) => void;
+  selectedIds: ReadonlySet<string>;
+  onToggle: (location: Location) => void;
 }) {
   const bays = useMemo(() => {
     const byBay = new Map<string, Location[]>();
@@ -64,14 +65,16 @@ export function LocationPicker({
             {bayGroup.tiles.map((location) => {
               const c = statusColor(location);
               const selectable = isSelectable(location);
+              const isSelected = selectedIds.has(location.id);
               return (
                 <div
                   key={location.id}
-                  className={`floorplan-tile${selectable ? " selectable" : ""}${selectedId === location.id ? " selected" : ""}`}
+                  className={`floorplan-tile${selectable ? " selectable" : ""}${isSelected ? " selected" : ""}`}
                   style={{ borderColor: c.border, background: c.bg, opacity: selectable ? 1 : 0.6 }}
                   title={location.fullLocationCode}
                   role={selectable ? "button" : undefined}
-                  onClick={selectable ? () => onSelect(location) : undefined}
+                  aria-pressed={selectable ? isSelected : undefined}
+                  onClick={selectable ? () => onToggle(location) : undefined}
                 >
                   <span className="floorplan-tile-code">{location.fullLocationCode}</span>
                   <span className="floorplan-tile-detail">

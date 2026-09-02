@@ -1,5 +1,5 @@
 import { FormEvent, RefObject, useEffect, useMemo, useRef, useState } from "react";
-import { PackagePlus } from "lucide-react";
+import { PackagePlus, X } from "lucide-react";
 import { api, type Location, type Sku, type WarehouseArea } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { ErrorBlock, LoadingBlock } from "../components/StateBlocks";
@@ -37,7 +37,9 @@ export function SeedPallet() {
   const [lookingUpProduct, setLookingUpProduct] = useState(false);
 
   const [locationInput, setLocationInput] = useState("");
-  const [location, setLocation] = useState<Location | null>(null);
+  // Multiple locations can be queued for the same SKU/lot/quantity -- one
+  // pallet gets created per selected location when storing.
+  const [selectedLocations, setSelectedLocations] = useState<Location[]>([]);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [lookingUpLocation, setLookingUpLocation] = useState(false);
 
@@ -67,6 +69,7 @@ export function SeedPallet() {
   const lotInputRef = useRef<HTMLInputElement>(null);
 
   const lotSuggestion = lastLotNumber || currentYearMonth();
+  const selectedIds = useMemo(() => new Set(selectedLocations.map((l) => l.id)), [selectedLocations]);
 
   function wakeKeyboard(ref: RefObject<HTMLInputElement>, setOn: (on: boolean) => void) {
     setOn(true);
@@ -122,12 +125,18 @@ export function SeedPallet() {
     }
   }
 
+  function toggleLocation(loc: Location) {
+    setSelectedLocations((prev) =>
+      prev.some((l) => l.id === loc.id) ? prev.filter((l) => l.id !== loc.id) : [...prev, loc],
+    );
+    setLocationError(null);
+  }
+
   async function handleLookupLocation(event: FormEvent) {
     event.preventDefault();
     if (!locationInput.trim()) return;
     setLookingUpLocation(true);
     setLocationError(null);
-    setLocation(null);
     try {
       const found = await api.lookupLocationByCode(locationInput.trim());
       if (!found) {
@@ -138,7 +147,8 @@ export function SeedPallet() {
         setLocationError(`${found.fullLocationCode} is already occupied.`);
         return;
       }
-      setLocation(found);
+      toggleLocation(found);
+      setLocationInput("");
     } catch (err) {
       setLocationError(err instanceof Error ? err.message : "Lookup failed");
     } finally {
@@ -146,18 +156,12 @@ export function SeedPallet() {
     }
   }
 
-  function handlePickLocation(picked: Location) {
-    setLocation(picked);
-    setLocationInput(picked.fullLocationCode);
-    setLocationError(null);
-  }
-
   function resetForNextScan() {
     setCodeInput("");
     setProduct(null);
     setProductError(null);
     setLocationInput("");
-    setLocation(null);
+    setSelectedLocations([]);
     setLocationError(null);
     setQuantity(1);
     setPalletLicensePlate("");
@@ -170,29 +174,44 @@ export function SeedPallet() {
 
   async function handleStore(event: FormEvent) {
     event.preventDefault();
-    if (!product || !location || quantity <= 0) return;
+    if (!product || selectedLocations.length === 0 || quantity <= 0) return;
     setStoring(true);
     setError(null);
-    try {
-      const result = await api.seedPallet({
-        productId: product.id,
-        locationId: location.id,
-        quantity,
-        palletLicensePlate: palletLicensePlate.trim() || undefined,
-        lotNumber: lotNumber.trim() || undefined,
-      });
-      setRecent((prev) => [
-        {
+
+    const stillSelected: Location[] = [];
+    const successes: StoredEntry[] = [];
+    const failures: string[] = [];
+    const singleTarget = selectedLocations.length === 1;
+
+    for (const loc of selectedLocations) {
+      try {
+        const result = await api.seedPallet({
+          productId: product.id,
+          locationId: loc.id,
+          quantity,
+          // A typed license plate identifies one physical pallet -- only honor
+          // it when storing to exactly one location; each other pallet gets
+          // its own auto-generated plate.
+          palletLicensePlate: singleTarget ? palletLicensePlate.trim() || undefined : undefined,
+          lotNumber: lotNumber.trim() || undefined,
+        });
+        successes.push({
           at: new Date().toLocaleTimeString(),
           itemCode: product.partNumber,
           description: product.description,
-          locationCode: location.fullLocationCode,
+          locationCode: loc.fullLocationCode,
           quantity,
           palletLicensePlate: result.palletLicensePlate,
           lotNumber: lotNumber.trim() || "—",
-        },
-        ...prev,
-      ].slice(0, 25));
+        });
+      } catch (err) {
+        stillSelected.push(loc);
+        failures.push(`${loc.fullLocationCode}: ${err instanceof Error ? err.message : "failed"}`);
+      }
+    }
+
+    if (successes.length) {
+      setRecent((prev) => [...[...successes].reverse(), ...prev].slice(0, 25));
       if (lotNumber.trim()) {
         setLastLotNumber(lotNumber.trim());
         try {
@@ -201,25 +220,30 @@ export function SeedPallet() {
           /* best-effort */
         }
       }
+    }
+
+    if (failures.length) {
+      setError(`Stored ${successes.length} of ${selectedLocations.length}. Failed: ${failures.join("; ")}`);
+      setSelectedLocations(stillSelected);
+      await loadPickerData();
+    } else {
       resetForNextScan();
       await loadPickerData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not store pallet");
-    } finally {
-      setStoring(false);
     }
+    setStoring(false);
   }
 
-  const readyToStore = Boolean(product && location) && quantity > 0;
+  const readyToStore = Boolean(product) && selectedLocations.length > 0 && quantity > 0;
 
   return (
     <section>
       <PageHeader eyebrow="Warehouse Setup" title="Scan & Store Pallet" />
       <p className="subtle" style={{ marginBottom: 12 }}>
-        Scan a pallet's barcode or type its SKU, then pick the destination location &mdash; tap an
-        open tile below or scan/type its code directly. Confirm the quantity, lot number if this
-        pallet has one, and store. The form clears and refocuses after each pallet so you can keep
-        going without touching the mouse.
+        Scan a pallet's barcode or type its SKU, then pick one or more destination locations &mdash;
+        tap open tiles below or scan/type codes directly to queue several at once. Confirm the
+        quantity and lot number, then store &mdash; one pallet is created per selected location. The
+        form clears and refocuses on the barcode field after each store so you can keep going
+        without touching the mouse.
       </p>
 
       {error && <ErrorBlock message={error} />}
@@ -279,23 +303,35 @@ export function SeedPallet() {
                 title="Double-tap to bring up the keyboard"
               />
               <button type="submit" disabled={lookingUpLocation || !locationInput.trim()}>
-                {lookingUpLocation ? "..." : "Look up"}
+                {lookingUpLocation ? "..." : "Add"}
               </button>
             </form>
           </label>
         </div>
 
         {locationError && <ErrorBlock message={locationError} />}
-        {location && (
-          <div className="state-block success">
-            <strong>{location.fullLocationCode}</strong> &mdash; {location.area?.name ?? "unknown area"} &mdash; open
+
+        {selectedLocations.length > 0 && (
+          <div className="button-row" style={{ marginTop: 8 }}>
+            {selectedLocations.map((loc) => (
+              <button
+                key={loc.id}
+                type="button"
+                className="pill active"
+                onClick={() => toggleLocation(loc)}
+                title="Remove"
+              >
+                {loc.fullLocationCode}
+                <X size={12} aria-hidden="true" style={{ marginLeft: 4 }} />
+              </button>
+            ))}
           </div>
         )}
 
         {loadingPicker && <LoadingBlock />}
         {!loadingPicker && (
           <div style={{ marginTop: 12 }}>
-            <LocationPicker locations={pickerLocations} selectedId={location?.id} onSelect={handlePickLocation} />
+            <LocationPicker locations={pickerLocations} selectedIds={selectedIds} onToggle={toggleLocation} />
           </div>
         )}
       </div>
@@ -303,7 +339,7 @@ export function SeedPallet() {
       <form className="panel form-panel" onSubmit={handleStore}>
         <div className="form-grid">
           <label>
-            Quantity
+            Quantity (per pallet)
             <input
               type="number"
               min="1"
@@ -317,7 +353,10 @@ export function SeedPallet() {
             <input
               value={palletLicensePlate}
               onChange={(event) => setPalletLicensePlate(event.target.value)}
-              placeholder="Auto-generated if left blank"
+              placeholder={
+                selectedLocations.length > 1 ? "Auto-generated (multiple locations selected)" : "Auto-generated if left blank"
+              }
+              disabled={selectedLocations.length > 1}
             />
           </label>
 
@@ -344,7 +383,11 @@ export function SeedPallet() {
         <div className="button-row">
           <button type="submit" disabled={!readyToStore || storing}>
             <PackagePlus size={18} aria-hidden="true" />
-            {storing ? "Storing..." : "Store pallet"}
+            {storing
+              ? "Storing..."
+              : selectedLocations.length > 1
+                ? `Store ${selectedLocations.length} pallets`
+                : "Store pallet"}
           </button>
         </div>
       </form>
