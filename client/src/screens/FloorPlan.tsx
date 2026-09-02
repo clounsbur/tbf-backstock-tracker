@@ -372,7 +372,10 @@ export function FloorPlan() {
                   title={box.label}
                 >
                   <span className={narrow ? "floorplan-area-name vertical" : "floorplan-area-name"}>{box.label}</span>
+                  {/* Michigan is split into three boxes sharing one area name, so its
+                      count would just repeat the same whole-area total in all three. */}
                   {!narrow &&
+                    areaName !== "Michigan" &&
                     (lit ? (
                       <span className="floorplan-area-units">{searchByArea[areaName]} u</span>
                     ) : (
