@@ -34,9 +34,9 @@ const LAYOUT: Box[] = [
   { area: "Soo Locks", label: "Soo Locks", x: 23, y: 0, w: 5, h: 61 },
   { area: "Huron", label: "Huron", x: 75, y: 0, w: 10, h: 62 },
   { area: "Erie", label: "Erie", x: 95, y: 0, w: 5, h: 87 },
-  { area: "Michigan", label: "Michigan 1-2", x: 45, y: 94, w: 14, h: 6 },
-  { area: "Michigan", label: "Michigan 3-11", x: 33, y: 62, w: 26, h: 18 },
-  { area: "Michigan", label: "Michigan 12-15", x: 63, y: 69, w: 9, h: 10 },
+  { area: "Michigan", label: "Michigan", x: 45, y: 94, w: 14, h: 6 },
+  { area: "Michigan", label: "Michigan", x: 33, y: 62, w: 26, h: 18 },
+  { area: "Michigan", label: "Michigan", x: 63, y: 69, w: 9, h: 10 },
   { area: "Ontario", label: "Ontario", x: 78, y: 78, w: 13, h: 22 },
   { area: "Whitefish", label: "Whitefish", x: 0, y: 83, w: 12, h: 15 },
 ];
