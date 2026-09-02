@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Location } from "../api/client";
 import { locationStatusLabel } from "./StatusBadge";
+import { rackPositionLabel } from "./rackPosition";
 
 // Same visual language as the Floor Plan drill-in view (grouped by bay, tinted
 // by status) so location selection looks and behaves consistently everywhere
@@ -45,12 +46,18 @@ export function LocationPicker({
     }
     return Array.from(byBay.entries())
       .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-      .map(([bay, list]) => ({
-        bay,
-        tiles: list.sort(
-          (a, b) => a.depthPosition - b.depthPosition || a.level.localeCompare(b.level, undefined, { numeric: true }),
-        ),
-      }));
+      .map(([bay, list]) => {
+        const rows = list.map((l) => l.slotRow).filter((r): r is number => r != null);
+        const cols = list.map((l) => l.slotCol).filter((c): c is number => c != null);
+        return {
+          bay,
+          tiles: list.sort(
+            (a, b) => a.depthPosition - b.depthPosition || a.level.localeCompare(b.level, undefined, { numeric: true }),
+          ),
+          maxSlotRow: rows.length ? Math.max(...rows) : 0,
+          maxSlotCol: cols.length ? Math.max(...cols) : 0,
+        };
+      });
   }, [locations]);
 
   if (locations.length === 0) {
@@ -67,6 +74,7 @@ export function LocationPicker({
               const c = statusColor(location);
               const selectable = isSelectable(location);
               const isSelected = selectedIds.has(location.id);
+              const posLabel = rackPositionLabel(location, bayGroup.maxSlotRow, bayGroup.maxSlotCol);
               return (
                 <div
                   key={location.id}
@@ -77,6 +85,7 @@ export function LocationPicker({
                   aria-pressed={selectable ? isSelected : undefined}
                   onClick={selectable ? () => onToggle(location) : undefined}
                 >
+                  {posLabel && <span className="floorplan-tile-pos">{posLabel}</span>}
                   <span className="floorplan-tile-code">{location.fullLocationCode}</span>
                   <span className="floorplan-tile-detail">
                     {location.currentPallet
