@@ -1347,4 +1347,89 @@ export const api = {
       skippedOccupied: number;
     };
   },
+
+  // Scan-a-barcode-or-SKU, pick a location, store the pallet -- for
+  // one-at-a-time warehouse seeding rather than the manifest-based container
+  // putaway flow. Creates the pallet, logs an INBOUND_PUTAWAY move, and marks
+  // the destination occupied, refusing to overwrite an already-occupied slot.
+  async lookupProductByCode(code: string) {
+    const term = code.trim();
+    if (!term) return null;
+    const { data, error } = await supabase
+      .from("products")
+      .select(PRODUCT_SELECT + ",barcode")
+      .or(`item_code.eq.${term},barcode.eq.${term}`)
+      .limit(1)
+      .maybeSingle();
+
+    throwIfError(error);
+    return data ? mapProduct(data) : null;
+  },
+
+  async lookupLocationByCode(code: string) {
+    const term = code.trim().toUpperCase();
+    if (!term) return null;
+    const { data, error } = await supabase
+      .from("locations")
+      .select("*, area:warehouse_areas(*)")
+      .eq("full_location_code", term)
+      .maybeSingle();
+
+    throwIfError(error);
+    return data ? mapLocation(data) : null;
+  },
+
+  async seedPallet(input: {
+    productId: number;
+    locationId: string;
+    quantity: number;
+    palletLicensePlate?: string;
+    movedBy?: string;
+  }) {
+    const { data: location, error: locErr } = await supabase
+      .from("locations")
+      .select("*")
+      .eq("id", input.locationId)
+      .single();
+    throwIfError(locErr);
+    if (location.status !== "OPEN" && location.status !== "OPEN_FLEX_SLOT" && location.status !== "RESERVED_HOME_SLOT") {
+      throw new Error(`Location ${location.full_location_code} is already occupied.`);
+    }
+
+    const licensePlate = input.palletLicensePlate?.trim() || `LP-SEED-${Date.now().toString(36).toUpperCase()}`;
+    const { data: pallet, error: palletErr } = await supabase
+      .from("pallets")
+      .insert({
+        pallet_license_plate: licensePlate,
+        product_id: input.productId,
+        quantity: input.quantity,
+        received_at: new Date().toISOString(),
+        current_location_id: input.locationId,
+        status: "AVAILABLE",
+      })
+      .select("id")
+      .single();
+    throwIfError(palletErr);
+
+    const { error: moveErr } = await supabase.from("move_transactions").insert({
+      pallet_id: pallet.id,
+      product_id: input.productId,
+      from_location_id: null,
+      to_location_id: input.locationId,
+      moved_by: input.movedBy ?? "warehouse.seed",
+      reason_code: "INBOUND_PUTAWAY",
+    });
+    throwIfError(moveErr);
+
+    const isOverflow =
+      (location.home_product_id !== null && location.home_product_id !== input.productId) ||
+      (location.home_product_id === null && location.is_flex_slot && location.allows_overflow);
+    const { error: statusErr } = await supabase
+      .from("locations")
+      .update({ status: isOverflow ? "OCCUPIED_OVERFLOW_SKU" : "OCCUPIED_HOME_SKU" })
+      .eq("id", input.locationId);
+    throwIfError(statusErr);
+
+    return { palletId: pallet.id as string, palletLicensePlate: licensePlate };
+  },
 };

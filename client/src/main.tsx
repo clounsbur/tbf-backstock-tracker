@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
-import { Boxes, ClipboardList, LayoutDashboard, Map, MapPin, MoveRight, PackageX, PackagePlus, Search } from "lucide-react";
+import { Boxes, ClipboardList, LayoutDashboard, Map, MapPin, MoveRight, PackageX, PackagePlus, ScanLine, Search } from "lucide-react";
 import { AddLocation } from "./screens/AddLocation";
 import { FloorMap } from "./screens/FloorMap";
 import { FloorPlan } from "./screens/FloorPlan";
@@ -9,6 +9,7 @@ import { InboundContainer } from "./screens/InboundContainer";
 import { ReleaseToPicking } from "./screens/ReleaseToPicking";
 import { InboundSuggestions } from "./screens/InboundSuggestions";
 import { MovePallet } from "./screens/MovePallet";
+import { SeedPallet } from "./screens/SeedPallet";
 import { SkuSearch } from "./screens/SkuSearch";
 import "./styles.css";
 
@@ -29,6 +30,7 @@ function App() {
             <NavItem to="/floor-map" icon={<Map size={18} />} label="Floor Map" />
             <NavItem to="/sku-search" icon={<Search size={18} />} label="SKU Search" />
             <NavItem to="/move-pallet" icon={<MoveRight size={18} />} label="Move Pallet" />
+            <NavItem to="/seed-pallet" icon={<ScanLine size={18} />} label="Scan & Store" />
             <NavItem to="/inbound-container" icon={<PackagePlus size={18} />} label="Incoming Container" />
             <NavItem to="/release" icon={<PackageX size={18} />} label="Release to Picking" />
             <NavItem to="/inbound-suggestions" icon={<ClipboardList size={18} />} label="Inbound Suggestions" />
@@ -42,6 +44,7 @@ function App() {
             <Route path="/floor-map" element={<FloorMap />} />
             <Route path="/sku-search" element={<SkuSearch />} />
             <Route path="/move-pallet" element={<MovePallet />} />
+            <Route path="/seed-pallet" element={<SeedPallet />} />
             <Route path="/inbound-container" element={<InboundContainer />} />
             <Route path="/release" element={<ReleaseToPicking />} />
             <Route path="/inbound-suggestions" element={<InboundSuggestions />} />
