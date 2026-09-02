@@ -12,6 +12,7 @@ type StoredEntry = {
   locationCode: string;
   quantity: number;
   palletLicensePlate: string;
+  lotNumber: string;
 };
 
 export function SeedPallet() {
@@ -32,6 +33,7 @@ export function SeedPallet() {
 
   const [quantity, setQuantity] = useState(1);
   const [palletLicensePlate, setPalletLicensePlate] = useState("");
+  const [lotNumber, setLotNumber] = useState("");
 
   const [storing, setStoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +127,7 @@ export function SeedPallet() {
     setLocationError(null);
     setQuantity(1);
     setPalletLicensePlate("");
+    setLotNumber("");
     codeInputRef.current?.focus();
   }
 
@@ -139,6 +142,7 @@ export function SeedPallet() {
         locationId: location.id,
         quantity,
         palletLicensePlate: palletLicensePlate.trim() || undefined,
+        lotNumber: lotNumber.trim() || undefined,
       });
       setRecent((prev) => [
         {
@@ -148,6 +152,7 @@ export function SeedPallet() {
           locationCode: location.fullLocationCode,
           quantity,
           palletLicensePlate: result.palletLicensePlate,
+          lotNumber: lotNumber.trim() || "—",
         },
         ...prev,
       ].slice(0, 25));
@@ -167,8 +172,9 @@ export function SeedPallet() {
       <PageHeader eyebrow="Warehouse Setup" title="Scan & Store Pallet" />
       <p className="subtle" style={{ marginBottom: 12 }}>
         Scan a pallet's barcode or type its SKU, then pick the destination location &mdash; tap an
-        open tile below or scan/type its code directly. Confirm the quantity and store. The form
-        clears and refocuses after each pallet so you can keep going without touching the mouse.
+        open tile below or scan/type its code directly. Confirm the quantity, lot number if this
+        pallet has one, and store. The form clears and refocuses after each pallet so you can keep
+        going without touching the mouse.
       </p>
 
       {error && <ErrorBlock message={error} />}
@@ -263,6 +269,15 @@ export function SeedPallet() {
               placeholder="Auto-generated if left blank"
             />
           </label>
+
+          <label>
+            Lot number (optional)
+            <input
+              value={lotNumber}
+              onChange={(event) => setLotNumber(event.target.value)}
+              placeholder="Scan or type this pallet's lot/batch number"
+            />
+          </label>
         </div>
 
         <div className="button-row">
@@ -286,6 +301,7 @@ export function SeedPallet() {
                   <th>Location</th>
                   <th>Qty</th>
                   <th>Pallet</th>
+                  <th>Lot</th>
                 </tr>
               </thead>
               <tbody>
@@ -297,6 +313,7 @@ export function SeedPallet() {
                     <td>{entry.locationCode}</td>
                     <td>{entry.quantity}</td>
                     <td>{entry.palletLicensePlate}</td>
+                    <td>{entry.lotNumber}</td>
                   </tr>
                 ))}
               </tbody>

@@ -77,6 +77,7 @@ export type Pallet = {
   currentLocationId: string | null;
   status: "AVAILABLE" | "IN_TRANSIT" | "CONSUMED" | "HOLD";
   inboundReceiptId?: string | null;
+  lotNumber?: string | null;
   sku?: Sku;
   currentLocation?: Location | null;
 };
@@ -211,6 +212,7 @@ function mapPallet(row: any): Pallet {
     currentLocationId: row.current_location_id ?? null,
     status: row.status,
     inboundReceiptId: row.inbound_receipt_id ?? null,
+    lotNumber: row.lot_number ?? null,
     sku: product ? mapProduct(product) : undefined,
     currentLocation: currentLocation ? mapLocation(currentLocation) : null,
   };
@@ -1384,6 +1386,7 @@ export const api = {
     locationId: string;
     quantity: number;
     palletLicensePlate?: string;
+    lotNumber?: string;
     movedBy?: string;
   }) {
     const { data: location, error: locErr } = await supabase
@@ -1406,6 +1409,7 @@ export const api = {
         received_at: new Date().toISOString(),
         current_location_id: input.locationId,
         status: "AVAILABLE",
+        lot_number: input.lotNumber?.trim() || null,
       })
       .select("id")
       .single();
