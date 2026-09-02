@@ -112,9 +112,10 @@ export function AddLocation() {
     try {
       const { locations } = await api.listAreaLocations(id);
       setEditLocations(locations);
-      // Prefill the resize tool's zone code from this area's existing locations
-      // so staff don't have to retype something already visible on screen.
-      setResizeZone(locations[0]?.zone ?? "");
+      // Default the resize tool to a zone this area's permanent locations
+      // actually use, so the dropdown below never starts empty.
+      const permanentZone = locations.find((l) => !l.allowsOverflow)?.zone;
+      setResizeZone(permanentZone ?? locations[0]?.zone ?? "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load locations for that area");
     } finally {
@@ -320,6 +321,14 @@ export function AddLocation() {
     if (!term) return editLocations;
     return editLocations.filter((l) => l.fullLocationCode.toLowerCase().includes(term));
   }, [editLocations, locationFilter]);
+
+  // Zones actually used by this area's permanent (non-overflow) locations --
+  // picking from this instead of free-typing a zone prevents attaching a
+  // typo'd or wrong-area zone code (e.g. "WF" ending up under Superior).
+  const permanentZonesForEditArea = useMemo(() => {
+    const zones = new Set(editLocations.filter((l) => !l.allowsOverflow).map((l) => l.zone));
+    return Array.from(zones).sort();
+  }, [editLocations]);
 
   return (
     <section>
@@ -656,7 +665,21 @@ export function AddLocation() {
             <div className="form-grid">
               <label>
                 Zone code
-                <input value={resizeZone} onChange={(event) => setResizeZone(event.target.value)} placeholder="e.g. SUP" />
+                {permanentZonesForEditArea.length > 0 ? (
+                  <select value={resizeZone} onChange={(event) => setResizeZone(event.target.value)}>
+                    {permanentZonesForEditArea.map((zone) => (
+                      <option key={zone} value={zone}>
+                        {zone}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={resizeZone}
+                    onChange={(event) => setResizeZone(event.target.value)}
+                    placeholder="e.g. SUP"
+                  />
+                )}
               </label>
 
               <label>
