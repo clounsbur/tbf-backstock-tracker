@@ -43,8 +43,12 @@ export function SeedPallet() {
 
   const [locationInput, setLocationInput] = useState("");
   // Multiple locations can be queued for the same SKU/lot/quantity -- one
-  // pallet gets created per selected location when storing.
+  // pallet gets created per selected location when storing. Clicking a
+  // queued location's chip expands a small editor for that one location's
+  // quantity/lot, overriding the shared defaults below just for it.
   const [selectedLocations, setSelectedLocations] = useState<Location[]>([]);
+  const [locationOverrides, setLocationOverrides] = useState<Record<string, { quantity?: number; lotNumber?: string }>>({});
+  const [expandedChipId, setExpandedChipId] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [lookingUpLocation, setLookingUpLocation] = useState(false);
 
@@ -138,6 +142,25 @@ export function SeedPallet() {
       prev.some((l) => l.id === loc.id) ? prev.filter((l) => l.id !== loc.id) : [...prev, loc],
     );
     setLocationError(null);
+    setLocationOverrides((prev) => {
+      if (!(loc.id in prev)) return prev;
+      const next = { ...prev };
+      delete next[loc.id];
+      return next;
+    });
+    setExpandedChipId((prev) => (prev === loc.id ? null : prev));
+  }
+
+  function setLocationOverride(id: string, patch: { quantity?: number; lotNumber?: string }) {
+    setLocationOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  }
+
+  function clearLocationOverride(id: string) {
+    setLocationOverrides((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }
 
   async function handleLookupLocation(event: FormEvent) {
@@ -170,6 +193,8 @@ export function SeedPallet() {
     setProductError(null);
     setLocationInput("");
     setSelectedLocations([]);
+    setLocationOverrides({});
+    setExpandedChipId(null);
     setLocationError(null);
     setQuantity(1);
     setPalletLicensePlate("");
@@ -195,25 +220,30 @@ export function SeedPallet() {
     const singleTarget = selectedLocations.length === 1;
 
     for (const loc of selectedLocations) {
+      // A location's own quantity/lot overrides (set by expanding its chip)
+      // win over the shared defaults above.
+      const override = locationOverrides[loc.id];
+      const effectiveQuantity = override?.quantity ?? quantity;
+      const effectiveLotNumber = override?.lotNumber ?? lotNumber;
       try {
         const result = await api.seedPallet({
           productId: product.id,
           locationId: loc.id,
-          quantity,
+          quantity: effectiveQuantity,
           // A typed license plate identifies one physical pallet -- only honor
           // it when storing to exactly one location; each other pallet gets
           // its own auto-generated plate.
           palletLicensePlate: singleTarget ? palletLicensePlate.trim() || undefined : undefined,
-          lotNumber: lotNumber.trim() || undefined,
+          lotNumber: effectiveLotNumber.trim() || undefined,
         });
         successes.push({
           at: new Date().toLocaleTimeString(),
           itemCode: product.partNumber,
           description: product.description,
           locationCode: loc.fullLocationCode,
-          quantity,
+          quantity: effectiveQuantity,
           palletLicensePlate: result.palletLicensePlate,
-          lotNumber: lotNumber.trim() || "—",
+          lotNumber: effectiveLotNumber.trim() || "—",
         });
         undoBatch.push({
           palletId: result.palletId,
@@ -288,7 +318,8 @@ export function SeedPallet() {
       <p className="subtle" style={{ marginBottom: 12 }}>
         Scan a pallet's barcode or type its SKU, then pick one or more destination locations &mdash;
         tap open tiles below or scan/type codes directly to queue several at once. Confirm the
-        quantity and lot number, then store &mdash; one pallet is created per selected location. The
+        quantity and lot number, then store &mdash; one pallet is created per selected location.
+        Click a queued location's chip to give just that one a different quantity or lot. The
         form clears and refocuses on the barcode field after each store so you can keep going
         without touching the mouse.
       </p>
@@ -370,19 +401,64 @@ export function SeedPallet() {
         {locationError && <ErrorBlock message={locationError} />}
 
         {selectedLocations.length > 0 && (
-          <div className="button-row" style={{ marginTop: 8 }}>
-            {selectedLocations.map((loc) => (
-              <button
-                key={loc.id}
-                type="button"
-                className="pill active"
-                onClick={() => toggleLocation(loc)}
-                title="Remove"
-              >
-                {loc.fullLocationCode}
-                <X size={12} aria-hidden="true" style={{ marginLeft: 4 }} />
-              </button>
-            ))}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+            {selectedLocations.map((loc) => {
+              const override = locationOverrides[loc.id];
+              const hasOverride = override?.quantity != null || Boolean(override?.lotNumber);
+              const expanded = expandedChipId === loc.id;
+              return (
+                <div key={loc.id} className="location-chip">
+                  <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                    <button
+                      type="button"
+                      className="pill active"
+                      onClick={() => setExpandedChipId(expanded ? null : loc.id)}
+                      title="Edit quantity/lot for this location"
+                    >
+                      {loc.fullLocationCode}
+                      {hasOverride && <span className="chip-override-dot" title="Custom quantity or lot" aria-hidden="true" />}
+                    </button>
+                    <button
+                      type="button"
+                      className="chip-remove"
+                      aria-label={`Remove ${loc.fullLocationCode}`}
+                      title="Remove"
+                      onClick={() => toggleLocation(loc)}
+                    >
+                      <X size={12} aria-hidden="true" />
+                    </button>
+                  </div>
+                  {expanded && (
+                    <div className="chip-editor">
+                      <label>
+                        Quantity
+                        <input
+                          type="number"
+                          min="1"
+                          value={override?.quantity ?? quantity}
+                          onChange={(event) =>
+                            setLocationOverride(loc.id, { quantity: Math.max(1, Number(event.target.value) || 1) })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Lot number
+                        <input
+                          value={override?.lotNumber ?? lotNumber}
+                          onChange={(event) => setLocationOverride(loc.id, { lotNumber: event.target.value })}
+                          placeholder={lotSuggestion}
+                        />
+                      </label>
+                      {hasOverride && (
+                        <button type="button" className="secondary-button" onClick={() => clearLocationOverride(loc.id)}>
+                          Reset to default
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 

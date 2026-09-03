@@ -291,6 +291,51 @@ h3 {
   color: #fff;
 }
 
+.location-chip {
+  display: flex;
+  flex-direction: column;
+}
+
+.chip-override-dot {
+  background: #38bdf8;
+  border-radius: 50%;
+  display: inline-block;
+  height: 7px;
+  margin-left: 6px;
+  width: 7px;
+}
+
+.chip-remove {
+  background: #fff;
+  border: 1px solid #c9d2dc;
+  border-radius: 999px;
+  color: #667085;
+  min-height: 40px;
+  min-width: 32px;
+  padding: 0 8px;
+}
+
+.chip-remove:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.chip-editor {
+  background: #f8fafc;
+  border: 1px solid #dce3ea;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 10px;
+}
+
+.chip-editor label {
+  min-width: 110px;
+}
+
 .toolbar .status-select {
   min-width: 170px;
 }
