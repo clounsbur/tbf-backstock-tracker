@@ -408,7 +408,7 @@ export function SeedPallet() {
               const expanded = expandedChipId === loc.id;
               return (
                 <div key={loc.id} className="location-chip">
-                  <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <button
                       type="button"
                       className="pill active"
