@@ -50,7 +50,7 @@ export function SeedPallet() {
   // queued location's chip expands a small editor for that one location's
   // quantity/lot, overriding the shared defaults below just for it.
   const [selectedLocations, setSelectedLocations] = useState<Location[]>([]);
-  const [locationOverrides, setLocationOverrides] = useState<Record<string, { quantity?: number; lotNumber?: string }>>({});
+  const [locationOverrides, setLocationOverrides] = useState<Record<string, { quantity?: number | ""; lotNumber?: string }>>({});
   const [expandedChipId, setExpandedChipId] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [lookingUpLocation, setLookingUpLocation] = useState(false);
@@ -60,7 +60,7 @@ export function SeedPallet() {
   const [allLocations, setAllLocations] = useState<Location[]>([]);
   const [loadingPicker, setLoadingPicker] = useState(true);
 
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState<number | "">(1);
   const [palletLicensePlate, setPalletLicensePlate] = useState("");
   const [lotNumber, setLotNumber] = useState("");
   const [lastLotNumber, setLastLotNumber] = useState(readLastLotNumber);
@@ -75,7 +75,7 @@ export function SeedPallet() {
   // Editing an already-occupied location's pallet (wrong quantity/lot typed
   // in when it was first stored).
   const [editingPalletLocation, setEditingPalletLocation] = useState<Location | null>(null);
-  const [editPalletQuantity, setEditPalletQuantity] = useState(1);
+  const [editPalletQuantity, setEditPalletQuantity] = useState<number | "">(1);
   const [editPalletLot, setEditPalletLot] = useState("");
   const [savingPalletEdit, setSavingPalletEdit] = useState(false);
   const [palletEditError, setPalletEditError] = useState<string | null>(null);
@@ -163,7 +163,7 @@ export function SeedPallet() {
     setExpandedChipId((prev) => (prev === loc.id ? null : prev));
   }
 
-  function setLocationOverride(id: string, patch: { quantity?: number; lotNumber?: string }) {
+  function setLocationOverride(id: string, patch: { quantity?: number | ""; lotNumber?: string }) {
     setLocationOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   }
 
@@ -219,7 +219,7 @@ export function SeedPallet() {
 
   async function handleStore(event: FormEvent) {
     event.preventDefault();
-    if (!product || selectedLocations.length === 0 || quantity <= 0) return;
+    if (!product || selectedLocations.length === 0 || Number(quantity) <= 0) return;
     setStoring(true);
     setError(null);
     setStoreSuccess(null);
@@ -236,7 +236,7 @@ export function SeedPallet() {
       // A location's own quantity/lot overrides (set by expanding its chip)
       // win over the shared defaults above.
       const override = locationOverrides[loc.id];
-      const effectiveQuantity = override?.quantity ?? quantity;
+      const effectiveQuantity = Math.max(1, Number(override?.quantity ?? quantity) || 1);
       const effectiveLotNumber = override?.lotNumber ?? lotNumber;
       try {
         const result = await api.seedPallet({
@@ -338,7 +338,8 @@ export function SeedPallet() {
     setPalletEditError(null);
     try {
       const previous = { quantity: loc.currentPallet.quantity, lotNumber: loc.currentPallet.lotNumber ?? null };
-      await api.updatePallet({ id: loc.currentPallet.id, quantity: editPalletQuantity, lotNumber: editPalletLot });
+      const effectiveQuantity = Math.max(1, Number(editPalletQuantity) || 1);
+      await api.updatePallet({ id: loc.currentPallet.id, quantity: effectiveQuantity, lotNumber: editPalletLot });
       setEditingPalletLocation(null);
       setError(null);
       setStoreSuccess(`Updated ${loc.fullLocationCode}.`);
@@ -372,7 +373,7 @@ export function SeedPallet() {
     }
   }
 
-  const readyToStore = Boolean(product) && selectedLocations.length > 0 && quantity > 0;
+  const readyToStore = Boolean(product) && selectedLocations.length > 0 && Number(quantity) > 0;
   const editingLocation = selectedLocations.find((l) => l.id === expandedChipId) ?? null;
 
   return (
@@ -517,11 +518,12 @@ export function SeedPallet() {
                     Quantity
                     <input
                       type="number"
+                      className="no-spinner"
                       min="1"
                       value={locationOverrides[editingLocation.id]?.quantity ?? quantity}
                       onChange={(event) =>
                         setLocationOverride(editingLocation.id, {
-                          quantity: Math.max(1, Number(event.target.value) || 1),
+                          quantity: event.target.value === "" ? "" : Number(event.target.value),
                         })
                       }
                     />
@@ -583,7 +585,7 @@ export function SeedPallet() {
                       className="no-spinner"
                       min="1"
                       value={editPalletQuantity}
-                      onChange={(event) => setEditPalletQuantity(Math.max(1, Number(event.target.value) || 1))}
+                      onChange={(event) => setEditPalletQuantity(event.target.value === "" ? "" : Number(event.target.value))}
                     />
                   </label>
                   <label>
@@ -621,9 +623,10 @@ export function SeedPallet() {
             Quantity (per pallet)
             <input
               type="number"
+              className="no-spinner"
               min="1"
               value={quantity}
-              onChange={(event) => setQuantity(Math.max(1, Number(event.target.value) || 1))}
+              onChange={(event) => setQuantity(event.target.value === "" ? "" : Number(event.target.value))}
             />
           </label>
 
