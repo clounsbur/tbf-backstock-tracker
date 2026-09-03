@@ -1580,6 +1580,22 @@ h3 {
   outline: 2px solid #94a3b8;
 }
 
+.floorplan-tile.editable {
+  cursor: pointer;
+  position: relative;
+}
+
+.floorplan-tile.editable:hover {
+  outline: 2px solid #2563eb;
+}
+
+.floorplan-tile-edit-hint {
+  color: #2563eb;
+  position: absolute;
+  right: 6px;
+  top: 6px;
+}
+
 .floorplan-tile.selected {
   box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.55);
   outline: 2px solid #15803d;

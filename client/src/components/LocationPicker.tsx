@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Pencil } from "lucide-react";
 import type { Location } from "../api/client";
 import { locationStatusLabel } from "./StatusBadge";
 import { floorPositionLabel, rackPositionLabel } from "./rackPosition";
@@ -32,10 +33,15 @@ export function LocationPicker({
   locations,
   selectedIds,
   onToggle,
+  onEditOccupied,
 }: {
   locations: Location[];
   selectedIds: ReadonlySet<string>;
   onToggle: (location: Location) => void;
+  // Tapping an already-occupied tile can't add it to the selection (there's
+  // nowhere to put a new pallet), but its pallet's quantity/lot might have
+  // been typed in wrong -- this opens an editor for that instead.
+  onEditOccupied?: (location: Location) => void;
 }) {
   const bays = useMemo(() => {
     const byBay = new Map<string, Location[]>();
@@ -73,6 +79,7 @@ export function LocationPicker({
             {bayGroup.tiles.map((location) => {
               const c = statusColor(location);
               const selectable = isSelectable(location);
+              const editable = !selectable && Boolean(onEditOccupied) && Boolean(location.currentPallet);
               const isSelected = selectedIds.has(location.id);
               const posLabel =
                 rackPositionLabel(location, bayGroup.maxSlotRow, bayGroup.maxSlotCol) ??
@@ -80,13 +87,14 @@ export function LocationPicker({
               return (
                 <div
                   key={location.id}
-                  className={`floorplan-tile${selectable ? " selectable" : ""}${isSelected ? " selected" : ""}`}
-                  style={{ borderColor: c.border, background: c.bg, opacity: selectable ? 1 : 0.6 }}
-                  title={location.fullLocationCode}
-                  role={selectable ? "button" : undefined}
+                  className={`floorplan-tile${selectable ? " selectable" : ""}${editable ? " editable" : ""}${isSelected ? " selected" : ""}`}
+                  style={{ borderColor: c.border, background: c.bg, opacity: selectable || editable ? 1 : 0.6 }}
+                  title={editable ? `Edit ${location.fullLocationCode}'s quantity/lot` : location.fullLocationCode}
+                  role={selectable || editable ? "button" : undefined}
                   aria-pressed={selectable ? isSelected : undefined}
-                  onClick={selectable ? () => onToggle(location) : undefined}
+                  onClick={selectable ? () => onToggle(location) : editable ? () => onEditOccupied!(location) : undefined}
                 >
+                  {editable && <Pencil size={11} className="floorplan-tile-edit-hint" aria-hidden="true" />}
                   {posLabel && <span className="floorplan-tile-pos">{posLabel}</span>}
                   <span className="floorplan-tile-code">{location.fullLocationCode}</span>
                   <span className="floorplan-tile-detail">

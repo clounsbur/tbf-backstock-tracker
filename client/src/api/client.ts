@@ -193,6 +193,7 @@ function mapLocation(row: any): Location {
           receivedAt: currentPallet.received_at,
           currentLocationId: currentPallet.current_location_id,
           status: currentPallet.status,
+          lotNumber: currentPallet.lot_number ?? null,
           sku: currentPalletProduct ? mapProduct(currentPalletProduct) : undefined,
         }
       : null,
@@ -1467,5 +1468,17 @@ export const api = {
     });
     throwIfError(error);
     return data as { undone: number; skipped: number };
+  },
+
+  // Corrects a pallet already sitting in a location -- e.g. a wrong quantity
+  // or lot typed in when it was first stored. pallets has an UPDATE grant
+  // for direct writes, same as everywhere else that edits an existing row.
+  async updatePallet(input: { id: string; quantity?: number; lotNumber?: string | null }) {
+    const patch: Record<string, unknown> = {};
+    if (input.quantity !== undefined) patch.quantity = input.quantity;
+    if (input.lotNumber !== undefined) patch.lot_number = input.lotNumber?.trim() || null;
+
+    const { error } = await supabase.from("pallets").update(patch).eq("id", input.id);
+    throwIfError(error);
   },
 };

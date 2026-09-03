@@ -1,5 +1,5 @@
 import { FormEvent, RefObject, useEffect, useMemo, useRef, useState } from "react";
-import { PackagePlus, X } from "lucide-react";
+import { PackagePlus, Save, X } from "lucide-react";
 import { api, type Location, type LocationStatus, type Sku, type WarehouseArea } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { ErrorBlock, LoadingBlock } from "../components/StateBlocks";
@@ -19,6 +19,9 @@ type StoredEntry = {
 // before it was occupied, so undo can put it back exactly as it was rather
 // than just assuming "OPEN".
 type UndoStoreItem = { palletId: string; locationId: string; locationCode: string; previousStatus: LocationStatus };
+
+// Everything needed to undo correcting an already-stored pallet's quantity/lot.
+type PalletEditUndo = { palletId: string; locationCode: string; previous: { quantity: number; lotNumber: string | null } };
 
 const LAST_LOT_STORAGE_KEY = "seedPallet.lastLotNumber";
 
@@ -68,6 +71,15 @@ export function SeedPallet() {
   const [storeSuccess, setStoreSuccess] = useState<string | null>(null);
   const [undoItems, setUndoItems] = useState<UndoStoreItem[] | null>(null);
   const [undoing, setUndoing] = useState(false);
+
+  // Editing an already-occupied location's pallet (wrong quantity/lot typed
+  // in when it was first stored).
+  const [editingPalletLocation, setEditingPalletLocation] = useState<Location | null>(null);
+  const [editPalletQuantity, setEditPalletQuantity] = useState(1);
+  const [editPalletLot, setEditPalletLot] = useState("");
+  const [savingPalletEdit, setSavingPalletEdit] = useState(false);
+  const [palletEditError, setPalletEditError] = useState<string | null>(null);
+  const [palletEditUndo, setPalletEditUndo] = useState<PalletEditUndo | null>(null);
 
   // Scan-style fields default to inputMode="none" so tapping them to focus
   // for a scanner doesn't pop the on-screen keyboard; a double-tap switches
@@ -212,6 +224,7 @@ export function SeedPallet() {
     setError(null);
     setStoreSuccess(null);
     setUndoItems(null);
+    setPalletEditUndo(null);
 
     const stillSelected: Location[] = [];
     const successes: StoredEntry[] = [];
@@ -310,6 +323,55 @@ export function SeedPallet() {
     }
   }
 
+  function openPalletEdit(loc: Location) {
+    if (!loc.currentPallet) return;
+    setError(null);
+    setEditingPalletLocation(loc);
+    setEditPalletQuantity(loc.currentPallet.quantity);
+    setEditPalletLot(loc.currentPallet.lotNumber ?? "");
+  }
+
+  async function handleSavePalletEdit() {
+    const loc = editingPalletLocation;
+    if (!loc?.currentPallet) return;
+    setSavingPalletEdit(true);
+    setPalletEditError(null);
+    try {
+      const previous = { quantity: loc.currentPallet.quantity, lotNumber: loc.currentPallet.lotNumber ?? null };
+      await api.updatePallet({ id: loc.currentPallet.id, quantity: editPalletQuantity, lotNumber: editPalletLot });
+      setEditingPalletLocation(null);
+      setError(null);
+      setStoreSuccess(`Updated ${loc.fullLocationCode}.`);
+      setUndoItems(null);
+      setPalletEditUndo({ palletId: loc.currentPallet.id, locationCode: loc.fullLocationCode, previous });
+      await loadPickerData();
+    } catch (err) {
+      setPalletEditError(err instanceof Error ? err.message : "Could not save");
+    } finally {
+      setSavingPalletEdit(false);
+    }
+  }
+
+  async function handleUndoPalletEdit() {
+    if (!palletEditUndo) return;
+    setUndoing(true);
+    setError(null);
+    try {
+      await api.updatePallet({
+        id: palletEditUndo.palletId,
+        quantity: palletEditUndo.previous.quantity,
+        lotNumber: palletEditUndo.previous.lotNumber,
+      });
+      setStoreSuccess(`Reverted ${palletEditUndo.locationCode}.`);
+      setPalletEditUndo(null);
+      await loadPickerData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not undo");
+    } finally {
+      setUndoing(false);
+    }
+  }
+
   const readyToStore = Boolean(product) && selectedLocations.length > 0 && quantity > 0;
   const editingLocation = selectedLocations.find((l) => l.id === expandedChipId) ?? null;
 
@@ -332,6 +394,11 @@ export function SeedPallet() {
           <span>{storeSuccess}</span>
           {undoItems && undoItems.length > 0 && (
             <button type="button" className="secondary-button" disabled={undoing} onClick={handleUndoStore}>
+              {undoing ? "Undoing..." : "Undo"}
+            </button>
+          )}
+          {palletEditUndo && (
+            <button type="button" className="secondary-button" disabled={undoing} onClick={handleUndoPalletEdit}>
               {undoing ? "Undoing..." : "Undo"}
             </button>
           )}
@@ -487,10 +554,62 @@ export function SeedPallet() {
           </div>
         )}
 
+        {editingPalletLocation?.currentPallet && (
+          <div className="modal-overlay" onClick={() => setEditingPalletLocation(null)}>
+            <div className="modal-panel" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+              <div className="modal-header">
+                <div>
+                  <h2>{editingPalletLocation.fullLocationCode}</h2>
+                  <p className="subtle">
+                    {editingPalletLocation.currentPallet.sku?.partNumber ?? editingPalletLocation.currentPallet.palletLicensePlate}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => setEditingPalletLocation(null)}
+                  aria-label="Close"
+                >
+                  <X size={18} aria-hidden="true" />
+                </button>
+              </div>
+              <div className="modal-body">
+                {palletEditError && <ErrorBlock message={palletEditError} />}
+                <div className="form-grid">
+                  <label>
+                    Quantity
+                    <input
+                      type="number"
+                      min="1"
+                      value={editPalletQuantity}
+                      onChange={(event) => setEditPalletQuantity(Math.max(1, Number(event.target.value) || 1))}
+                    />
+                  </label>
+                  <label>
+                    Lot number
+                    <input value={editPalletLot} onChange={(event) => setEditPalletLot(event.target.value)} />
+                  </label>
+                </div>
+                <div className="button-row" style={{ marginTop: 12, marginBottom: 0 }}>
+                  <button type="button" disabled={savingPalletEdit} onClick={handleSavePalletEdit}>
+                    <Save size={16} aria-hidden="true" />
+                    {savingPalletEdit ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {loadingPicker && <LoadingBlock />}
         {!loadingPicker && (
           <div style={{ marginTop: 12 }}>
-            <LocationPicker locations={pickerLocations} selectedIds={selectedIds} onToggle={toggleLocation} />
+            <LocationPicker
+              locations={pickerLocations}
+              selectedIds={selectedIds}
+              onToggle={toggleLocation}
+              onEditOccupied={openPalletEdit}
+            />
           </div>
         )}
       </div>
