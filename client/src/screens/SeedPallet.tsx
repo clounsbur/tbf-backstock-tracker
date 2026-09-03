@@ -311,6 +311,7 @@ export function SeedPallet() {
   }
 
   const readyToStore = Boolean(product) && selectedLocations.length > 0 && quantity > 0;
+  const editingLocation = selectedLocations.find((l) => l.id === expandedChipId) ?? null;
 
   return (
     <section>
@@ -405,60 +406,84 @@ export function SeedPallet() {
             {selectedLocations.map((loc) => {
               const override = locationOverrides[loc.id];
               const hasOverride = override?.quantity != null || Boolean(override?.lotNumber);
-              const expanded = expandedChipId === loc.id;
               return (
-                <div key={loc.id} className="location-chip">
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <button
-                      type="button"
-                      className="pill active"
-                      onClick={() => setExpandedChipId(expanded ? null : loc.id)}
-                      title="Edit quantity/lot for this location"
-                    >
-                      {loc.fullLocationCode}
-                      {hasOverride && <span className="chip-override-dot" title="Custom quantity or lot" aria-hidden="true" />}
-                    </button>
-                    <button
-                      type="button"
-                      className="chip-remove"
-                      aria-label={`Remove ${loc.fullLocationCode}`}
-                      title="Remove"
-                      onClick={() => toggleLocation(loc)}
-                    >
-                      <X size={12} aria-hidden="true" />
-                    </button>
-                  </div>
-                  {expanded && (
-                    <div className="chip-editor">
-                      <label>
-                        Quantity
-                        <input
-                          type="number"
-                          min="1"
-                          value={override?.quantity ?? quantity}
-                          onChange={(event) =>
-                            setLocationOverride(loc.id, { quantity: Math.max(1, Number(event.target.value) || 1) })
-                          }
-                        />
-                      </label>
-                      <label>
-                        Lot number
-                        <input
-                          value={override?.lotNumber ?? lotNumber}
-                          onChange={(event) => setLocationOverride(loc.id, { lotNumber: event.target.value })}
-                          placeholder={lotSuggestion}
-                        />
-                      </label>
-                      {hasOverride && (
-                        <button type="button" className="secondary-button" onClick={() => clearLocationOverride(loc.id)}>
-                          Reset to default
-                        </button>
-                      )}
-                    </div>
-                  )}
+                <div key={loc.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <button
+                    type="button"
+                    className="pill active"
+                    onClick={() => setExpandedChipId(loc.id)}
+                    title="Edit quantity/lot for this location"
+                  >
+                    {loc.fullLocationCode}
+                    {hasOverride && <span className="chip-override-dot" title="Custom quantity or lot" aria-hidden="true" />}
+                  </button>
+                  <button
+                    type="button"
+                    className="chip-remove"
+                    aria-label={`Remove ${loc.fullLocationCode}`}
+                    title="Remove"
+                    onClick={() => toggleLocation(loc)}
+                  >
+                    <X size={12} aria-hidden="true" />
+                  </button>
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {editingLocation && (
+          <div className="modal-overlay" onClick={() => setExpandedChipId(null)}>
+            <div className="modal-panel" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+              <div className="modal-header">
+                <div>
+                  <h2>{editingLocation.fullLocationCode}</h2>
+                  <p className="subtle">Quantity and lot for just this location</p>
+                </div>
+                <button type="button" className="icon-button" onClick={() => setExpandedChipId(null)} aria-label="Close">
+                  <X size={18} aria-hidden="true" />
+                </button>
+              </div>
+              <div className="modal-body">
+                <div className="form-grid">
+                  <label>
+                    Quantity
+                    <input
+                      type="number"
+                      min="1"
+                      value={locationOverrides[editingLocation.id]?.quantity ?? quantity}
+                      onChange={(event) =>
+                        setLocationOverride(editingLocation.id, {
+                          quantity: Math.max(1, Number(event.target.value) || 1),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Lot number
+                    <input
+                      value={locationOverrides[editingLocation.id]?.lotNumber ?? lotNumber}
+                      onChange={(event) => setLocationOverride(editingLocation.id, { lotNumber: event.target.value })}
+                      placeholder={lotSuggestion}
+                    />
+                  </label>
+                </div>
+                <div className="button-row" style={{ marginTop: 12, marginBottom: 0 }}>
+                  {(locationOverrides[editingLocation.id]?.quantity != null || locationOverrides[editingLocation.id]?.lotNumber) && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => clearLocationOverride(editingLocation.id)}
+                    >
+                      Reset to default
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setExpandedChipId(null)}>
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
