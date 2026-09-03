@@ -53,6 +53,16 @@ textarea {
   width: 100%;
 }
 
+.no-spinner {
+  -moz-appearance: textfield;
+}
+
+.no-spinner::-webkit-inner-spin-button,
+.no-spinner::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 label {
   color: #4b5563;
   display: grid;

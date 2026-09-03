@@ -580,6 +580,7 @@ export function SeedPallet() {
                     Quantity
                     <input
                       type="number"
+                      className="no-spinner"
                       min="1"
                       value={editPalletQuantity}
                       onChange={(event) => setEditPalletQuantity(Math.max(1, Number(event.target.value) || 1))}
