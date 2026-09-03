@@ -1451,4 +1451,21 @@ export const api = {
 
     return { palletId: pallet.id as string, palletLicensePlate: licensePlate };
   },
+
+  // Undo for Scan & Store: deletes the pallet + its putaway log entry and
+  // reopens the location, but only for items still exactly as seedPallet
+  // left them (see undo_seed_pallet's own comment for the exact guard).
+  async undoSeedPallet(items: Array<{ palletId: string; locationId: string; previousStatus: LocationStatus }>) {
+    const { data, error } = await supabase.rpc("undo_seed_pallet", {
+      input: {
+        items: items.map((item) => ({
+          palletId: item.palletId,
+          locationId: item.locationId,
+          previousStatus: item.previousStatus,
+        })),
+      },
+    });
+    throwIfError(error);
+    return data as { undone: number; skipped: number };
+  },
 };

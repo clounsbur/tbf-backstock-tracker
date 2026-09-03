@@ -1,6 +1,6 @@
 import { FormEvent, RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { PackagePlus, X } from "lucide-react";
-import { api, type Location, type Sku, type WarehouseArea } from "../api/client";
+import { api, type Location, type LocationStatus, type Sku, type WarehouseArea } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { ErrorBlock, LoadingBlock } from "../components/StateBlocks";
 import { LocationPicker } from "../components/LocationPicker";
@@ -14,6 +14,11 @@ type StoredEntry = {
   palletLicensePlate: string;
   lotNumber: string;
 };
+
+// Everything needed to undo one pallet just stored -- the location's status
+// before it was occupied, so undo can put it back exactly as it was rather
+// than just assuming "OPEN".
+type UndoStoreItem = { palletId: string; locationId: string; locationCode: string; previousStatus: LocationStatus };
 
 const LAST_LOT_STORAGE_KEY = "seedPallet.lastLotNumber";
 
@@ -56,6 +61,9 @@ export function SeedPallet() {
   const [storing, setStoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<StoredEntry[]>([]);
+  const [storeSuccess, setStoreSuccess] = useState<string | null>(null);
+  const [undoItems, setUndoItems] = useState<UndoStoreItem[] | null>(null);
+  const [undoing, setUndoing] = useState(false);
 
   // Scan-style fields default to inputMode="none" so tapping them to focus
   // for a scanner doesn't pop the on-screen keyboard; a double-tap switches
@@ -177,9 +185,12 @@ export function SeedPallet() {
     if (!product || selectedLocations.length === 0 || quantity <= 0) return;
     setStoring(true);
     setError(null);
+    setStoreSuccess(null);
+    setUndoItems(null);
 
     const stillSelected: Location[] = [];
     const successes: StoredEntry[] = [];
+    const undoBatch: UndoStoreItem[] = [];
     const failures: string[] = [];
     const singleTarget = selectedLocations.length === 1;
 
@@ -204,6 +215,12 @@ export function SeedPallet() {
           palletLicensePlate: result.palletLicensePlate,
           lotNumber: lotNumber.trim() || "—",
         });
+        undoBatch.push({
+          palletId: result.palletId,
+          locationId: loc.id,
+          locationCode: loc.fullLocationCode,
+          previousStatus: loc.status,
+        });
       } catch (err) {
         stillSelected.push(loc);
         failures.push(`${loc.fullLocationCode}: ${err instanceof Error ? err.message : "failed"}`);
@@ -212,6 +229,12 @@ export function SeedPallet() {
 
     if (successes.length) {
       setRecent((prev) => [...[...successes].reverse(), ...prev].slice(0, 25));
+      setStoreSuccess(
+        successes.length > 1
+          ? `Stored ${successes.length} pallets of ${product.partNumber}.`
+          : `Stored ${product.partNumber} to ${successes[0].locationCode}.`,
+      );
+      setUndoItems(undoBatch);
       if (lotNumber.trim()) {
         setLastLotNumber(lotNumber.trim());
         try {
@@ -233,6 +256,30 @@ export function SeedPallet() {
     setStoring(false);
   }
 
+  async function handleUndoStore() {
+    if (!undoItems || undoItems.length === 0) return;
+    setUndoing(true);
+    setError(null);
+    try {
+      const result = await api.undoSeedPallet(undoItems);
+      if (result.undone === 0) {
+        setError("Could not undo -- those pallets have already been moved or released elsewhere.");
+      } else {
+        setStoreSuccess(
+          result.skipped > 0
+            ? `Removed ${result.undone} pallet(s). ${result.skipped} had already been moved or released and were left alone.`
+            : `Removed ${result.undone} pallet(s).`,
+        );
+      }
+      setUndoItems(null);
+      await loadPickerData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not undo");
+    } finally {
+      setUndoing(false);
+    }
+  }
+
   const readyToStore = Boolean(product) && selectedLocations.length > 0 && quantity > 0;
 
   return (
@@ -247,6 +294,17 @@ export function SeedPallet() {
       </p>
 
       {error && <ErrorBlock message={error} />}
+
+      {storeSuccess && (
+        <div className="state-block success" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <span>{storeSuccess}</span>
+          {undoItems && undoItems.length > 0 && (
+            <button type="button" className="secondary-button" disabled={undoing} onClick={handleUndoStore}>
+              {undoing ? "Undoing..." : "Undo"}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="panel form-panel">
         <form className="search-bar" onSubmit={handleLookupProduct}>
