@@ -36,8 +36,20 @@ type LocationEdits = Partial<{
   status: LocationStatus;
 }>;
 
+// One-level undo for whatever the most recent mutating action on this page
+// was. Each variant carries exactly what's needed to reverse itself; see
+// handleUndo below for how each one is played back.
+type UndoAction =
+  | { kind: "location-created"; id: string; code: string }
+  | { kind: "area-created"; id: string; name: string }
+  | { kind: "area-updated"; id: string; name: string; previous: { name: string; areaType: AreaType; isFloorStacked: boolean; isLastResort: boolean } }
+  | { kind: "location-updated"; id: string; code: string; previous: LocationEdits }
+  | { kind: "resize-added"; ids: string[]; count: number };
+
 export function AddLocation() {
   const [activeTab, setActiveTab] = useState<Tab>("add-location");
+  const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
+  const [undoing, setUndoing] = useState(false);
 
   const [areas, setAreas] = useState<WarehouseArea[]>([]);
   const [loading, setLoading] = useState(true);
@@ -162,6 +174,7 @@ export function AddLocation() {
         isFloorStacked: newAreaFloorStacked,
       });
       setSuccess(`Added area "${area.name}".`);
+      setUndoAction({ kind: "area-created", id: area.id, name: area.name });
       setNewAreaName("");
       setNewAreaFloorStacked(false);
       await loadAreas();
@@ -191,6 +204,7 @@ export function AddLocation() {
         storageType,
       });
       setSuccess(`Added ${storageType === "PERMANENT" ? "permanent" : "temporary"} location "${location.fullLocationCode}".`);
+      setUndoAction({ kind: "location-created", id: location.id, code: location.fullLocationCode });
       setAisle("");
       setBay("");
       setLevel("1");
@@ -206,6 +220,7 @@ export function AddLocation() {
   async function handleSaveArea(event: FormEvent) {
     event.preventDefault();
     if (!selectedAreaId) return;
+    const before = areas.find((a) => a.id === selectedAreaId);
     setSavingArea(true);
     setError(null);
     setSuccess(null);
@@ -218,6 +233,19 @@ export function AddLocation() {
         isLastResort: editAreaLastResort,
       });
       setSuccess(`Saved area "${area.name}".`);
+      if (before) {
+        setUndoAction({
+          kind: "area-updated",
+          id: selectedAreaId,
+          name: area.name,
+          previous: {
+            name: before.name,
+            areaType: before.areaType,
+            isFloorStacked: Boolean(before.isFloorStacked),
+            isLastResort: Boolean(before.isLastResort),
+          },
+        });
+      }
       await loadAreas();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save area");
@@ -289,6 +317,9 @@ export function AddLocation() {
           ? `Added ${result.added} location(s).`
           : `Removed ${result.removed} empty location(s).${result.skippedOccupied ? ` Skipped ${result.skippedOccupied} occupied.` : ""}`,
       );
+      if (resizeAction === "ADD" && result.addedIds.length > 0) {
+        setUndoAction({ kind: "resize-added", ids: result.addedIds, count: result.added });
+      }
       setResizePreview(null);
       await loadAreaLocations(selectedAreaId);
     } catch (err) {
@@ -327,8 +358,15 @@ export function AddLocation() {
   async function handleSaveLocation(loc: Location) {
     const edits = locationEdits[loc.id];
     if (!edits) return;
+    // Snapshot the pre-edit value of every field about to change, so the
+    // save can be undone by replaying these back through updateLocation.
+    const previous: LocationEdits = {};
+    for (const key of Object.keys(edits) as Array<keyof LocationEdits>) {
+      (previous as Record<string, unknown>)[key] = loc[key as keyof Location];
+    }
     setSavingLocationId(loc.id);
     setError(null);
+    setSuccess(null);
     try {
       const updated = await api.updateLocation({ id: loc.id, ...edits });
       setAreaLocations((prev) => prev.map((l) => (l.id === loc.id ? updated : l)));
@@ -337,10 +375,70 @@ export function AddLocation() {
         delete next[loc.id];
         return next;
       });
+      setSuccess(`Saved ${updated.fullLocationCode}.`);
+      setUndoAction({ kind: "location-updated", id: loc.id, code: updated.fullLocationCode, previous });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save location");
     } finally {
       setSavingLocationId(null);
+    }
+  }
+
+  async function handleUndo() {
+    if (!undoAction) return;
+    setUndoing(true);
+    setError(null);
+    try {
+      switch (undoAction.kind) {
+        case "location-created": {
+          const result = await api.deleteLocations([undoAction.id]);
+          if (result.deleted === 0) {
+            setError(`Could not undo -- ${undoAction.code} already has a pallet in it.`);
+            break;
+          }
+          setSuccess(`Removed ${undoAction.code}.`);
+          setUndoAction(null);
+          if (selectedAreaId) await loadAreaLocations(selectedAreaId);
+          break;
+        }
+        case "resize-added": {
+          const result = await api.deleteLocations(undoAction.ids);
+          setSuccess(
+            result.skipped > 0
+              ? `Removed ${result.deleted} location(s). ${result.skipped} already had a pallet and were kept.`
+              : `Removed ${result.deleted} location(s).`,
+          );
+          setUndoAction(null);
+          if (selectedAreaId) await loadAreaLocations(selectedAreaId);
+          break;
+        }
+        case "area-created": {
+          await api.deleteArea(undoAction.id);
+          setSuccess(`Removed area "${undoAction.name}".`);
+          setUndoAction(null);
+          await loadAreas();
+          break;
+        }
+        case "area-updated": {
+          const area = await api.updateArea({ id: undoAction.id, ...undoAction.previous });
+          setSuccess(`Reverted area "${area.name}".`);
+          setUndoAction(null);
+          await loadAreas();
+          if (selectedAreaId === undoAction.id) selectArea(area);
+          break;
+        }
+        case "location-updated": {
+          const updated = await api.updateLocation({ id: undoAction.id, ...undoAction.previous });
+          setAreaLocations((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+          setSuccess(`Reverted ${undoAction.code}.`);
+          setUndoAction(null);
+          break;
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not undo");
+    } finally {
+      setUndoing(false);
     }
   }
 
@@ -398,7 +496,16 @@ export function AddLocation() {
           </div>
 
           {error && <ErrorBlock message={error} />}
-          {success && <div className="state-block success">{success}</div>}
+          {success && (
+            <div className="state-block success" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <span>{success}</span>
+              {undoAction && (
+                <button type="button" className="secondary-button" disabled={undoing} onClick={handleUndo}>
+                  {undoing ? "Undoing..." : "Undo"}
+                </button>
+              )}
+            </div>
+          )}
 
           {activeTab === "add-location" && (
             <form className="panel form-panel" onSubmit={handleCreateLocation}>

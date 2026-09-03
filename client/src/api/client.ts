@@ -1344,10 +1344,25 @@ export const api = {
       dryRun: boolean;
       wouldAdd: number;
       added: number;
+      addedIds: string[];
       wouldRemove: number;
       removed: number;
       skippedOccupied: number;
     };
+  },
+
+  // Undo support for Warehouse Setup: deletes are only ever done through
+  // these validated RPCs (never a direct table delete), and only ever
+  // remove locations/areas that are still empty.
+  async deleteLocations(ids: string[]) {
+    const { data, error } = await supabase.rpc("delete_locations_by_ids", { input: { ids } });
+    throwIfError(error);
+    return data as { deleted: number; skipped: number };
+  },
+
+  async deleteArea(id: string) {
+    const { error } = await supabase.rpc("delete_area", { input: { id } });
+    throwIfError(error);
   },
 
   // Scan-a-barcode-or-SKU, pick a location, store the pallet -- for
